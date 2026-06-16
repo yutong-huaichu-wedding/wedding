@@ -384,6 +384,10 @@ canvas.confetti{position:fixed;inset:0;pointer-events:none;z-index:40}
 @keyframes wireflash{50%{background:#fff6d6}}
 
 /* 神準丟紗布 */
+/* 📺 投影模式:藏掉所有控制按鈕,只保留乾淨的展示內容 */
+body.screen-mode .btn{display:none !important}
+body.screen-mode .danmaku{display:block}
+
 /* ⚔️ PK 對戰 */
 .pkgamepick,.pkplayerpick{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .pkgame,.pkpp{padding:10px 14px;border-radius:12px;border:2px solid var(--line);background:#fff;font-weight:700;cursor:pointer;font-size:14px;transition:.12s;user-select:none}
@@ -404,6 +408,14 @@ canvas.confetti{position:fixed;inset:0;pointer-events:none;z-index:40}
 .pkmini{position:relative;width:100%;height:180px;margin-top:10px;background:rgba(255,255,255,.08);border-radius:10px;overflow:hidden}
 .pkmini .pkcat{position:absolute;width:42px;height:42px}
 .pkmini .pkcat img{width:100%;height:100%;object-fit:contain}
+/* 大螢幕配對翻牌迷你牌陣 */
+.pkmatchmini{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:6px;width:100%;height:100%;box-sizing:border-box}
+.pkmc{position:relative;border-radius:6px;aspect-ratio:3/4;transform-style:preserve-3d;transition:transform .3s}
+.pkmc-back,.pkmc-front{position:absolute;inset:0;border-radius:6px;backface-visibility:hidden;display:flex;align-items:center;justify-content:center}
+.pkmc-back{background:linear-gradient(135deg,#b5566b,#c8893c);color:#fff;font-size:16px}
+.pkmc-front{background-size:cover;background-position:center;transform:rotateY(180deg)}
+.pkmc.flip{transform:rotateY(180deg)}
+.pkmc.done{opacity:.55}
 .pktimer{text-align:center;font-size:18px;font-weight:800;margin-top:16px;color:var(--gold-l)}
 .pkwinner{text-align:center;font-size:26px;font-weight:900;margin-top:10px;font-family:"Playfair Display",serif;min-height:32px}
 
@@ -651,6 +663,7 @@ canvas.confetti{position:fixed;inset:0;pointer-events:none;z-index:40}
     <button class="btn primary" id="startBtn" onclick="startQuiz()" disabled>🎮 開始快問快答(第一題)</button>
     <button class="btn" style="margin-top:10px;background:linear-gradient(135deg,#b5566b,#c8893c);color:#fff" onclick="openPkSetup()">⚔️ PK 對戰(兩位賓客上台比拼)</button>
     <button class="btn ghost" style="margin-top:10px" onclick="goHostSetup()">⚙️ 編輯題目與設定</button>
+    <button class="btn ghost" style="margin-top:10px" onclick="openSeatAdmin()">🪑 座位管理(匯入賓客座位表)</button>
     <button class="btn ghost" style="margin-top:10px" onclick="openWishAdmin()">🗑️ 祝福管理(刪除不當留言)</button>
     <button class="btn ghost" style="margin-top:10px;color:#c0392b" onclick="resetQuiz()">🧹 重置快問快答(分數歸零)</button>
   </section>
@@ -707,7 +720,8 @@ canvas.confetti{position:fixed;inset:0;pointer-events:none;z-index:40}
       <div class="matchgrid" id="pkMatchGrid" style="display:none"></div>
       <div class="tossarea" id="pkTossArea" style="display:none">
         <img class="tosstray" id="pkTossTray" src="" alt="收納桶">
-        <div class="gauze" id="pkTossBall"></div>
+        <div class="tossnurse" id="pkTossNurse">👩‍⚕️</div>
+        <div class="tossball" id="pkTossBall"><div class="gauze"></div></div>
         <div class="tossaim" id="pkTossAim"></div>
       </div>
     </div>
@@ -723,9 +737,53 @@ canvas.confetti{position:fixed;inset:0;pointer-events:none;z-index:40}
     <button class="btn ghost" onclick="openHostLobby()">← 返回控制台</button>
   </section>
 
+  <!-- ================= 賓客:查座位 ================= -->
+  <section id="s-seat" class="screen">
+    <div class="brand"><h1>🪑 查座位</h1><div class="sub">F I N D   Y O U R   S E A T</div><div class="rule"></div></div>
+    <div class="card">
+      <p class="muted">輸入你的名字,查詢你的桌號。</p>
+      <input id="seatNameInput" type="text" placeholder="輸入你的名字"
+        style="text-align:center;font-size:18px;margin-top:14px"
+        onkeydown="if(event.key==='Enter')lookupSeat()">
+      <button class="btn primary" style="margin-top:12px" onclick="lookupSeat()">🔍 查詢我的桌號</button>
+      <div id="seatResult" style="margin-top:18px"></div>
+    </div>
+    <button class="btn ghost" onclick="show('s-hub')">← 返回大廳</button>
+  </section>
+
+  <!-- ================= 主持人:座位管理 ================= -->
+  <section id="s-seat-admin" class="screen host">
+    <div class="brand"><h1>🪑 座位管理</h1><div class="rule"></div></div>
+    <div class="card">
+      <h2>貼上座位表</h2>
+      <p class="muted">從 Excel 直接複製「姓名 + 桌號」兩欄(含或不含標題列都可),貼到下面框框,按匯入。也可手動一行一個,用空白或逗號隔開姓名與桌號。</p>
+      <textarea id="seatPaste" rows="8" placeholder="王小明	3&#10;陳美麗	3&#10;李大同	5&#10;..." style="width:100%;margin-top:10px;font-size:14px;font-family:monospace"></textarea>
+      <button class="btn primary" style="margin-top:10px" onclick="importSeats()">📥 匯入座位表</button>
+      <div id="seatImportMsg" style="margin-top:10px;font-weight:700"></div>
+    </div>
+    <div class="card">
+      <h2>目前座位表 <span class="counter" id="seatCount">0</span></h2>
+      <div id="seatAdminList" style="margin-top:10px;max-height:40vh;overflow-y:auto;font-size:14px"></div>
+      <button class="btn ghost" style="margin-top:10px;color:#c0392b" onclick="clearSeats()">🗑️ 清空座位表</button>
+    </div>
+    <button class="btn ghost" onclick="openHostLobby()">← 返回控制台</button>
+  </section>
+
+  <!-- ================= 選手:PK 結果 ================= -->
+  <section id="s-pk-result" class="screen">
+    <div class="bigstate">
+      <div class="em" id="pkResultEmoji">⚔️</div>
+      <h2 id="pkResultTitle">等待對手完成…</h2>
+      <div id="pkResultScores" style="margin:18px 0;font-size:18px;line-height:1.9"></div>
+      <p class="muted" id="pkResultNote">對手還在進行中,結果稍候揭曉…</p>
+      <button class="btn primary" style="margin-top:18px;width:auto;padding:14px 28px" onclick="show('s-hub')">← 返回大廳</button>
+    </div>
+  </section>
+
   <!-- ================= 主持人:祝福牆(投影) ================= -->
   <section id="s-host-wall" class="screen host">
     <div class="brand"><h1>💌 祝福牆</h1><div class="sub">B L E S S I N G S</div><div class="rule"></div></div>
+    <div class="danmaku" id="screenDanmaku" style="height:140px;margin-bottom:16px"></div>
     <div id="wallGrid" class="wallgrid"></div>
     <button class="btn ghost" style="margin-top:18px" onclick="show('s-host-lobby')">← 返回控制台</button>
   </section>
@@ -854,6 +912,9 @@ canvas.confetti{position:fixed;inset:0;pointer-events:none;z-index:40}
     </div>
 
     <div class="hub">
+      <div class="hubcard" style="--hc:#4a73b0" onclick="openSeatLookup()">
+        <div class="hi">🪑</div><b>查座位</b><span>輸入名字找桌號</span>
+      </div>
       <div class="hubcard" style="--hc:var(--rose)" onclick="openWish()">
         <div class="hi">💌</div><b>祝福留言</b><span>留下你的祝福</span>
       </div>
@@ -2026,6 +2087,106 @@ function watchHubWishes(){
   });
 }
 
+// ============== 🪑 座位查詢 / 管理 ==============
+// 名字正規化:去頭尾與所有空白、全形轉半形、小寫,提高比對命中率
+function normName(s){
+  return (s||'').toString()
+    .replace(/[\uFF01-\uFF5E]/g, ch=>String.fromCharCode(ch.charCodeAt(0)-0xFEE0)) // 全形→半形
+    .replace(/\s+/g,'')      // 去所有空白
+    .replace(/[‧·•．.]/g,'') // 去間隔點
+    .toLowerCase();
+}
+// 賓客:開啟查座位
+function openSeatLookup(){
+  document.getElementById('seatResult').innerHTML='';
+  const inp=document.getElementById('seatNameInput');
+  inp.value=state.name||'';
+  show('s-seat');
+  setTimeout(()=>{ inp.focus(); }, 300);
+}
+// 賓客:查詢座位
+function lookupSeat(){
+  const raw=(document.getElementById('seatNameInput').value||'').trim();
+  const box=document.getElementById('seatResult');
+  if(!raw){ box.innerHTML='<p class="muted">請先輸入名字</p>'; return; }
+  box.innerHTML='<p class="muted">查詢中…</p>';
+  db.ref('rooms/'+ROOM+'/seats').once('value').then(s=>{
+    const seats=s.val()||{};
+    const key=normName(raw);
+    let table=seats[key];
+    // 找不到完全相符 → 試模糊比對(包含關係)
+    if(table==null){
+      const hit=Object.keys(seats).find(k=> k.includes(key) || key.includes(k));
+      if(hit) table=seats[hit];
+    }
+    if(table!=null){
+      box.innerHTML='<div style="text-align:center;padding:18px;background:linear-gradient(135deg,#eaf1fb,#dde7f5);border-radius:16px">'+
+        '<div style="font-size:15px;color:var(--ink-soft)">'+esc(raw)+',你的座位是</div>'+
+        '<div style="font-size:54px;font-weight:900;color:#4a73b0;line-height:1.2;margin:6px 0">第 '+esc(String(table))+' 桌</div>'+
+        '<div style="font-size:14px">🎉 入座後別忘了留個祝福哦</div></div>';
+      confetti(600);
+    }else{
+      box.innerHTML='<div style="text-align:center;padding:18px;background:#fdf3ee;border-radius:16px">'+
+        '<div style="font-size:40px">🤔</div>'+
+        '<div style="font-weight:700;margin:8px 0">找不到「'+esc(raw)+'」的座位</div>'+
+        '<div class="muted" style="font-size:13px">可能是名字輸入方式不同(例如有沒有空格、暱稱 vs 全名)。<br>請試試完整姓名,或詢問現場工作人員 🙏</div></div>';
+    }
+  });
+}
+// 主持人:開啟座位管理
+function openSeatAdmin(){
+  show('s-seat-admin');
+  renderSeatAdmin();
+}
+// 主持人:匯入座位表(貼上 Excel:姓名<Tab>桌號,每行一筆)
+function importSeats(){
+  const txt=document.getElementById('seatPaste').value||'';
+  const lines=txt.split(/\r?\n/).map(l=>l.trim()).filter(l=>l);
+  if(!lines.length){ document.getElementById('seatImportMsg').textContent='沒有偵測到資料'; return; }
+  const seats={}; let ok=0, skip=0;
+  lines.forEach(line=>{
+    // 支援 Tab、逗號、多個空白分隔
+    const parts=line.split(/\t|,|，|\s{1,}/).map(p=>p.trim()).filter(p=>p);
+    if(parts.length<2){ skip++; return; }
+    // 最後一個是桌號(數字),其餘合併當名字
+    const table=parts[parts.length-1].replace(/[^0-9]/g,'');
+    const name=parts.slice(0,parts.length-1).join('');
+    // 跳過標題列(桌號不是數字、或名字含「姓名」「桌」)
+    if(!table || /姓名|名字|桌號|桌次|table|name/i.test(line)){ skip++; return; }
+    const key=normName(name);
+    if(!key){ skip++; return; }
+    seats[key]=parseInt(table,10);
+    ok++;
+  });
+  if(!ok){ document.getElementById('seatImportMsg').innerHTML='<span style="color:#c0392b">沒有成功匯入任何筆數,請檢查格式(姓名 桌號)</span>'; return; }
+  // 也存一份原始顯示名(給主持人看清單)
+  db.ref('rooms/'+ROOM+'/seats').set(seats).then(()=>{
+    document.getElementById('seatImportMsg').innerHTML='<span style="color:#2e7d32">✅ 成功匯入 '+ok+' 筆'+(skip?'(略過 '+skip+' 筆)':'')+'</span>';
+    renderSeatAdmin();
+  });
+}
+function renderSeatAdmin(){
+  db.ref('rooms/'+ROOM+'/seats').once('value').then(s=>{
+    const seats=s.val()||{};
+    const keys=Object.keys(seats);
+    document.getElementById('seatCount').textContent=keys.length;
+    const box=document.getElementById('seatAdminList');
+    if(!keys.length){ box.innerHTML='<p class="muted">尚未匯入座位</p>'; return; }
+    // 依桌號排序
+    keys.sort((a,b)=>(seats[a]-seats[b]));
+    box.innerHTML=keys.map(k=>'<div style="display:flex;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--line)"><span>'+esc(k)+'</span><b>第 '+esc(String(seats[k]))+' 桌</b></div>').join('');
+  });
+}
+function clearSeats(){
+  if(!confirm('確定清空整份座位表?此動作無法復原。')) return;
+  db.ref('rooms/'+ROOM+'/seats').remove().then(()=>{
+    document.getElementById('seatImportMsg').textContent='';
+    document.getElementById('seatPaste').value='';
+    renderSeatAdmin();
+    toast('座位表已清空');
+  });
+}
+
 // 主持人:祝福管理(列出全部、可刪除)
 function openWishAdmin(){
   const box=document.getElementById('wishAdminList');
@@ -2689,9 +2850,13 @@ function hostStartPk(){
     a:{pid:pkSel.a, name:pkSel.aName, score:0}, b:{pid:pkSel.b, name:pkSel.bName, score:0}
   };
   db.ref('rooms/'+ROOM+'/pk').set(pk).then(()=>{
-    // 清掉舊的貓事件
+    // 清掉舊的重現事件(貓、牌陣、翻牌)
     db.ref('rooms/'+ROOM+'/pk/aCats').remove();
     db.ref('rooms/'+ROOM+'/pk/bCats').remove();
+    db.ref('rooms/'+ROOM+'/pk/aDeck').remove();
+    db.ref('rooms/'+ROOM+'/pk/bDeck').remove();
+    db.ref('rooms/'+ROOM+'/pk/aFlips').remove();
+    db.ref('rooms/'+ROOM+'/pk/bFlips').remove();
     openPkScreen();
   });
 }
@@ -2741,11 +2906,8 @@ function watchPkScreen(){
     document.getElementById('pkScreenNameB').textContent=pk.b.name;
     document.getElementById('pkScreenScoreA').textContent=Math.max(0,pk.a.score||0);
     document.getElementById('pkScreenScoreB').textContent=Math.max(0,pk.b.score||0);
-    // 依遊戲類型,在 mini 區顯示進度(配對:幾對;丟紗布:進幾顆)
-    if(pk.game==='match'){
-      pkRenderMatchProgress('pkMiniA', pk.a);
-      pkRenderMatchProgress('pkMiniB', pk.b);
-    }else if(pk.game==='toss'){
+    // 丟紗布:顯示進幾顆(抓貓與配對用各自的重現)
+    if(pk.game==='toss'){
       pkRenderTossProgress('pkMiniA', pk.a);
       pkRenderTossProgress('pkMiniB', pk.b);
     }
@@ -2759,7 +2921,33 @@ function watchPkScreen(){
   // 抓貓:重現雙方抓貓畫面
   root.child('aCats').on('child_added', sn=>pkRenderCat('pkMiniA', sn.val()));
   root.child('bCats').on('child_added', sn=>pkRenderCat('pkMiniB', sn.val()));
+  // 配對翻牌:大螢幕畫出牌陣,並跟著翻牌事件重現過程
+  root.child('aDeck').on('value', sn=>{ if(sn.val()) pkBuildScreenGrid('pkMiniA', sn.val()); });
+  root.child('bDeck').on('value', sn=>{ if(sn.val()) pkBuildScreenGrid('pkMiniB', sn.val()); });
+  root.child('aFlips').on('child_added', sn=>pkApplyFlip('pkMiniA', sn.val()));
+  root.child('bFlips').on('child_added', sn=>pkApplyFlip('pkMiniB', sn.val()));
   if(pkScreenReady) return; pkScreenReady=true;
+}
+// 大螢幕:畫出配對翻牌的牌陣(背面朝上)
+function pkBuildScreenGrid(miniId, deck){
+  const mini=document.getElementById(miniId); if(!mini||!deck) return;
+  mini.innerHTML='';
+  const grid=document.createElement('div'); grid.className='pkmatchmini';
+  deck.forEach((idx,i)=>{
+    const c=document.createElement('div'); c.className='pkmc'; c.dataset.i=i; c.dataset.idx=idx;
+    c.innerHTML='<div class="pkmc-back">❤</div><div class="pkmc-front" style="background-image:url('+CARD_IMGS[idx]+')"></div>';
+    grid.appendChild(c);
+  });
+  mini.appendChild(grid);
+}
+// 大螢幕:套用翻牌事件(翻開/配對/翻回)
+function pkApplyFlip(miniId, ev){
+  if(!ev) return;
+  const mini=document.getElementById(miniId); if(!mini) return;
+  const card=i=>mini.querySelector('.pkmc[data-i="'+i+'"]');
+  if(ev.type==='flip'){ const c=card(ev.i); if(c) c.classList.add('flip'); }
+  else if(ev.type==='match'){ const a=card(ev.i),b=card(ev.j); if(a){a.classList.add('flip','done');} if(b){b.classList.add('flip','done');} }
+  else if(ev.type==='unflip'){ const a=card(ev.i),b=card(ev.j); if(a)a.classList.remove('flip'); if(b)b.classList.remove('flip'); }
 }
 // 配對翻牌:大螢幕顯示進度(已配對對數 / 總對數 + 進度條)
 function pkRenderMatchProgress(miniId, p){
@@ -2875,7 +3063,7 @@ function pkSpawnCat(side){
 }
 function endPkAsPlayer(side){
   stopGameTimers();
-  // 標記自己玩完;若兩人都完成,主持端的 value 監聽會判定;這裡也回報最終分數
+  // 標記自己玩完、回報最終分數
   db.ref('rooms/'+ROOM+'/pk/'+side+'/done').set(true);
   db.ref('rooms/'+ROOM+'/pk/'+side+'/score').set(Math.max(0,game.score));
   // 檢查雙方是否都完成 → 設 ended
@@ -2886,8 +3074,39 @@ function endPkAsPlayer(side){
   state._pkPlaying=false;
   state._pkDoneRound=state._pkRound;   // 記住這局已完成,資料更新不會重啟
   game.pkStart=null;
-  toast('你完成了!回大廳看結果 🎉');
-  show('s-hub');
+  // 停在結果畫面,即時顯示雙方分數與勝負
+  showPkResult(side);
+}
+// 選手:PK 結果畫面(等對手完成後揭曉勝負)
+let pkResultRef=null;
+function showPkResult(mySide){
+  show('s-pk-result');
+  document.getElementById('pkResultTitle').textContent='你完成了!';
+  document.getElementById('pkResultNote').textContent='對手還在進行中,結果稍候揭曉…';
+  document.getElementById('pkResultEmoji').textContent='⏳';
+  if(pkResultRef){ try{pkResultRef.off();}catch(e){} }
+  pkResultRef=db.ref('rooms/'+ROOM+'/pk');
+  pkResultRef.on('value', s=>{
+    const pk=s.val(); if(!pk||!pk.a||!pk.b) return;
+    const sa=Math.max(0,pk.a.score||0), sb=Math.max(0,pk.b.score||0);
+    const unit = pk.game==='toss' ? ' 顆' : (pk.game==='match' ? ' 分' : ' 分');
+    // 即時顯示雙方目前分數
+    const myName = mySide==='a'?pk.a.name:pk.b.name;
+    document.getElementById('pkResultScores').innerHTML=
+      '<div style="color:#b5566b;font-weight:800">🔴 '+esc(pk.a.name)+':'+sa+unit+'</div>'+
+      '<div style="color:#4a73b0;font-weight:800">🔵 '+esc(pk.b.name)+':'+sb+unit+'</div>';
+    if(pk.status==='ended'){
+      const iWon = (mySide==='a'&&sa>sb)||(mySide==='b'&&sb>sa);
+      const tie = sa===sb;
+      document.getElementById('pkResultEmoji').textContent = tie?'🤝':(iWon?'🎉':'💪');
+      document.getElementById('pkResultTitle').textContent = tie?'平手!':(iWon?'你贏了!':'惜敗!');
+      document.getElementById('pkResultNote').textContent = tie?'雙方不分軒輊!':(iWon?'恭喜獲勝 🏆':'再接再厲,下次贏回來!');
+      if(iWon) confetti(900);
+      try{ pkResultRef.off(); }catch(e){}
+    }else{
+      document.getElementById('pkResultTitle').textContent='你完成了!';
+    }
+  });
 }
 // 主持人:結束 PK
 function endPk(){
@@ -2916,13 +3135,15 @@ function startPkMatch(pk, side){
     c.innerHTML='<div class="face back">❤</div><div class="face front" style="background-image:url('+CARD_IMGS[idx]+')"></div>';
     c.onclick=()=>pkFlipCard(i,c,idx,side); grid.appendChild(c);
   });
+  // 上傳牌面配置給大螢幕重現(大螢幕畫一樣的牌陣)
+  db.ref('rooms/'+ROOM+'/pk/'+side+'Deck').set(deck);
+  db.ref('rooms/'+ROOM+'/pk/'+side+'Flips').remove();
   const wait=Math.max(0,(pk.startAt||Date.now())-Date.now());
   document.getElementById('pkPlayTimer').textContent='準備…';
   stopGameTimers();
   setTimeout(()=>{
     game.pkStart=Date.now();
     game.timer=setInterval(()=>{ game.t++; document.getElementById('pkPlayTimer').textContent=game.t+'s'; },1000);
-    // 上傳總對數讓大螢幕畫進度
     db.ref('rooms/'+ROOM+'/pk/'+side+'/pairs').set(N);
     db.ref('rooms/'+ROOM+'/pk/'+side+'/matched').set(0);
   }, wait);
@@ -2931,14 +3152,15 @@ function pkFlipCard(i,el,idx,side){
   if(game.lock||el.classList.contains('flipped')||el.classList.contains('matched')) return;
   if(!game.pkStart) return;  // 還沒開始(準備倒數中)
   el.classList.add('flipped'); game.flipped.push({i,el,idx});
+  db.ref('rooms/'+ROOM+'/pk/'+side+'Flips').push({type:'flip', i:i});  // 翻開:給大螢幕
   if(game.flipped.length===2){
     game.moves++;
     const [a,b]=game.flipped;
     if(a.idx===b.idx){
       a.el.classList.add('matched'); b.el.classList.add('matched'); game.flipped=[]; game.matched++;
       document.getElementById('pkPlayScore').textContent=game.matched+' 對';
-      db.ref('rooms/'+ROOM+'/pk/'+side+'/matched').set(game.matched);  // 即時上傳進度
-      // 分數 = 配對數 ×100(大螢幕比分用),完成後再加速度獎勵
+      db.ref('rooms/'+ROOM+'/pk/'+side+'Flips').push({type:'match', i:a.i, j:b.i});  // 配對成功
+      db.ref('rooms/'+ROOM+'/pk/'+side+'/matched').set(game.matched);
       db.ref('rooms/'+ROOM+'/pk/'+side+'/score').set(game.matched*100);
       if(game.matched===game.pairs){
         const sec=(Date.now()-game.pkStart)/1000;
@@ -2949,7 +3171,10 @@ function pkFlipCard(i,el,idx,side){
       }
     }else{
       game.lock=true;
-      setTimeout(()=>{ a.el.classList.remove('flipped'); b.el.classList.remove('flipped'); game.flipped=[]; game.lock=false; },800);
+      const ai=a.i, bi=b.i;
+      setTimeout(()=>{ a.el.classList.remove('flipped'); b.el.classList.remove('flipped'); game.flipped=[]; game.lock=false;
+        db.ref('rooms/'+ROOM+'/pk/'+side+'Flips').push({type:'unflip', i:ai, j:bi});  // 翻回去
+      },800);
     }
   }
 }
@@ -3431,6 +3656,7 @@ function setScreen(view){
 // 純投影裝置:只看 screen 指令與快問快答狀態,自動顯示對應畫面,無控制
 function enterScreenMode(){
   state.role='screen'; state.room=ROOM;
+  document.body.classList.add('screen-mode');   // 投影模式:隱藏所有控制按鈕
   // 先載入標題等設定(不阻塞監聽)
   loadRoomConfig();
   // 載入並即時更新祝福牆、照片牆資料(否則投影出來是空的)
