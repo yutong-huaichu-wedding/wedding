@@ -640,9 +640,9 @@ body.screen-mode .danmaku{display:block}
     <div class="card" style="border:2px solid var(--gold-l)">
       <span class="tag">🎮 遊戲開放控制</span>
       <h2>控制賓客能不能玩</h2>
-      <p class="muted">關閉時,賓客點進去會看到「遊戲時間未開放,敬請期待」。建議在適當時機才開放,避免大家整場都在玩。</p>
+      <p class="muted">快問快答可開放或關閉；樂透請先設定簽注時間，再開放新一輪。</p>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
-        <button class="btn" id="toggleGamesBtn" onclick="toggleOpen('games')" style="font-size:16px;padding:14px">🕹️ 小遊戲:讀取中…</button>
+        <button class="btn gold" id="toggleLotteryBtn" onclick="openLottery()">🎱 樂透：設定時間與開放簽注</button>
         <button class="btn" id="toggleQuizBtn" onclick="toggleOpen('quiz')" style="font-size:16px;padding:14px">🎮 快問快答:讀取中…</button>
       </div>
     </div>
@@ -665,7 +665,6 @@ body.screen-mode .danmaku{display:block}
     </div>
 
     <button class="btn primary" id="startBtn" onclick="startQuiz()" disabled>🎮 開始快問快答(第一題)</button>
-    <button class="btn" style="margin-top:10px;background:linear-gradient(135deg,#b5566b,#c8893c);color:#fff" onclick="openPkSetup()">⚔️ PK 對戰(兩位賓客上台比拼)</button>
     <button class="btn ghost" style="margin-top:10px" onclick="goHostSetup()">⚙️ 編輯題目與設定</button>
     <button class="btn ghost" style="margin-top:10px" onclick="openSeatAdmin()">🪑 座位管理(匯入賓客座位表)</button>
     <button class="btn ghost" style="margin-top:10px" onclick="openWishAdmin()">🗑️ 祝福管理(刪除不當留言)</button>
@@ -673,63 +672,13 @@ body.screen-mode .danmaku{display:block}
   </section>
 
   <!-- ================= 主持人:PK 對戰設定 ================= -->
-  <section id="s-pk-setup" class="screen host">
-    <div class="brand"><h1>⚔️ PK 對戰</h1><div class="rule"></div></div>
-    <div class="card">
-      <h2>1. 選一個遊戲</h2>
-      <div class="pkgamepick" id="pkGamePick"></div>
-    </div>
-    <div class="card">
-      <h2>2. 選兩位選手</h2>
-      <p class="muted">從目前在線的賓客中各選一位(點一下選為紅方,再點一位為藍方)。</p>
-      <div class="pkplayerpick" id="pkPlayerPick"></div>
-      <div style="display:flex;gap:10px;margin-top:12px">
-        <div class="pkslot" id="pkSlotA">紅方:未選</div>
-        <div class="pkslot" id="pkSlotB">藍方:未選</div>
-      </div>
-    </div>
-    <button class="btn primary" id="pkStartBtn" onclick="hostStartPk()" disabled>🚀 開始 PK!</button>
-    <button class="btn ghost" style="margin-top:10px" onclick="openHostLobby()">← 返回控制台</button>
-  </section>
+  
 
   <!-- ================= 主持人:PK 大螢幕(投影) ================= -->
-  <section id="s-pk-screen" class="screen host">
-    <div class="pkboard">
-      <div class="pktitle"><span id="pkTitleGame">PK 對戰</span></div>
-      <div class="pkvs">
-        <div class="pkside red">
-          <div class="pkname" id="pkScreenNameA">紅方</div>
-          <div class="pkscore" id="pkScreenScoreA">0</div>
-          <div class="pkmini" id="pkMiniA"></div>
-        </div>
-        <div class="pkvsmid">🆚</div>
-        <div class="pkside blue">
-          <div class="pkname" id="pkScreenNameB">藍方</div>
-          <div class="pkscore" id="pkScreenScoreB">0</div>
-          <div class="pkmini" id="pkMiniB"></div>
-        </div>
-      </div>
-      <div class="pktimer" id="pkScreenTimer">準備中…</div>
-      <div class="pkwinner" id="pkWinner"></div>
-    </div>
-    <button class="btn ghost" style="margin-top:10px" onclick="endPk()">結束 PK · 返回控制台</button>
-  </section>
+  
 
   <!-- ================= 選手:PK 遊戲中 ================= -->
-  <section id="s-pk-play" class="screen">
-    <div class="qhead"><span id="pkPlayScore">0 分</span><span id="pkPlaySide" style="font-weight:800"></span><span class="timer" id="pkPlayTimer">30s</span></div>
-    <div class="card" style="padding:10px">
-      <p class="muted" style="margin:2px 0 8px;text-align:center;font-size:13px" id="pkPlayHint">PK 進行中!</p>
-      <div class="catcharea" id="pkCatchArea"></div>
-      <div class="matchgrid" id="pkMatchGrid" style="display:none"></div>
-      <div class="tossarea" id="pkTossArea" style="display:none">
-        <img class="tosstray" id="pkTossTray" src="" alt="收納桶">
-        <div class="tossnurse" id="pkTossNurse">👩‍⚕️</div>
-        <div class="tossball" id="pkTossBall"><div class="gauze"></div></div>
-        <div class="tossaim" id="pkTossAim"></div>
-      </div>
-    </div>
-  </section>
+  
 
   <!-- 主持人:祝福管理(刪除不當留言) -->
   <section id="s-wish-admin" class="screen host">
@@ -774,15 +723,7 @@ body.screen-mode .danmaku{display:block}
   </section>
 
   <!-- ================= 選手:PK 結果 ================= -->
-  <section id="s-pk-result" class="screen">
-    <div class="bigstate">
-      <div class="em" id="pkResultEmoji">⚔️</div>
-      <h2 id="pkResultTitle">等待對手完成…</h2>
-      <div id="pkResultScores" style="margin:18px 0;font-size:18px;line-height:1.9"></div>
-      <p class="muted" id="pkResultNote">對手還在進行中,結果稍候揭曉…</p>
-      <button class="btn primary" style="margin-top:18px;width:auto;padding:14px 28px" onclick="show('s-hub')">← 返回大廳</button>
-    </div>
-  </section>
+  
 
   <!-- ================= 主持人:祝福牆(投影) ================= -->
   <section id="s-host-wall" class="screen host">
@@ -849,7 +790,6 @@ body.screen-mode .danmaku{display:block}
     <!-- 賓客模式才顯示的切換頁籤(主持端公布快問快答時會隱藏) -->
     <div class="lbtabs" id="lbTabs" style="display:none">
       <div class="lbtab on" id="lbTabQuiz" onclick="lbSwitch('quiz')">🎮 快問快答</div>
-      <div class="lbtab" id="lbTabMini" onclick="lbSwitch('mini')">🕹️ 小遊戲</div>
     </div>
     <!-- 小遊戲模式:選哪個遊戲的榜 -->
     <div class="gamepicker" id="lbGamePicker" style="display:none"></div>
@@ -929,134 +869,35 @@ body.screen-mode .danmaku{display:block}
         <div class="hi">📸</div><b>上傳照片</b><span>分享現場的美好</span>
       </div>
       <div class="hubcard" style="--hc:#6f8fb0" onclick="openQuizFromHub()">
-        <div class="hi">🎮</div><b>快問快答</b><span id="quizCardSub">問答小遊戲</span>
+        <div class="hi">🎮</div><b>快問快答</b><span id="quizCardSub">新人快問快答</span>
       </div>
       <div class="hubcard" style="--hc:var(--gold-d)" onclick="openLottery()"><div class="hi">🎱</div><b>幸福大樂透</b><span>選 6 個號碼 · 好運開獎</span></div>
-      <div class="hubcard" style="--hc:#b07cae" onclick="openMiniGames()">
-        <div class="hi">🕹️</div><b>小遊戲</b><span id="gamesCardSub">玩遊戲也能上榜</span>
-      </div>
-      <div class="hubcard" style="--hc:#c8893c" onclick="openLeaderboard()">
-        <div class="hi">🏆</div><b>排行榜</b><span>看看誰最高分</span>
-      </div>
+      <div class="hubcard" style="--hc:#c8893c" onclick="openLeaderboard()"><div class="hi">🏆</div><b>排行榜</b><span>快問快答成績</span></div>
     </div>
     <p class="hint" style="text-align:center" id="hubName"></p>
     <p style="text-align:center"><a href="javascript:void(0)" onclick="logoutGuest()" style="color:var(--ink-soft);font-size:13px">換個身分</a></p>
   </section>
 
   <!-- ================= 賓客:小遊戲選單 ================= -->
-  <section id="s-games" class="screen">
-    <div class="brand"><h1>🕹️ 小遊戲</h1><div class="sub">純 好 玩 · 不 影 響 抽 獎</div><div class="rule"></div></div>
-    <div class="card" style="text-align:center">
-      <p class="muted">小遊戲純粹好玩、看看照片,分數<b>不會</b>影響快問快答的抽獎排名。各遊戲各自比高分 🏆</p>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><span class="hi" style="font-size:22px">🃏</span> <b style="font-size:17px;color:var(--rose-deep)">配對翻牌</b></div>
-        <button class="btn primary sm" onclick="startMatch()">開始玩 ▶</button>
-      </div>
-      <div class="mylast" id="matchLast">尚未挑戰過</div>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><span class="hi" style="font-size:22px">🐱</span> <b style="font-size:17px;color:var(--gold-d)">抓貓貓</b></div>
-        <button class="btn gold sm" onclick="startCatch()">開始玩 ▶</button>
-      </div>
-      <div class="mylast" id="catchLast">尚未挑戰過</div>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><span class="hi" style="font-size:22px">⚡</span> <b style="font-size:17px;color:#d98e00">電錶判讀王</b></div>
-        <button class="btn sm" style="background:#d98e00;color:#fff" onclick="startMeter()">開始玩 ▶</button>
-      </div>
-      <p class="muted" style="font-size:12px;margin:6px 0 0">台電讀錶員上身!看懂指針電錶讀出度數,越快越準分越高</p>
-      <div class="mylast" id="meterLast">尚未挑戰過</div>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><span class="hi" style="font-size:22px">🔌</span> <b style="font-size:17px;color:#3b7d5a">接電路大師</b></div>
-        <button class="btn sm" style="background:#3b7d5a;color:#fff" onclick="startWire()">開始玩 ▶</button>
-      </div>
-      <p class="muted" style="font-size:12px;margin:6px 0 0">旋轉管線把電廠 ⚡ 接到房子 🏠!接通一關得分,過越多關越高</p>
-      <div class="mylast" id="wireLast">尚未挑戰過</div>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><span class="hi" style="font-size:22px">🩹</span> <b style="font-size:17px;color:#3aa39a">神準丟紗布</b></div>
-        <button class="btn sm" style="background:#3aa39a;color:#fff" onclick="startToss()">開始玩 ▶</button>
-      </div>
-      <p class="muted" style="font-size:12px;margin:6px 0 0">手指往上滑瞄準,鬆手把紗布丟進收納盤!10 顆進越多、越快分越高</p>
-      <div class="mylast" id="tossLast">尚未挑戰過</div>
-    </div>
-
-    <button class="btn ghost" style="margin-top:6px" onclick="show('s-hub')">← 返回大廳</button>
-  </section>
+  
 
   <!-- 配對翻牌 -->
-  <section id="s-match" class="screen">
-    <div class="qhead"><span id="matchInfo">步數 0</span><span class="timer" id="matchTimer">0s</span></div>
-    <div class="card">
-      <div class="matchgrid" id="matchGrid"></div>
-    </div>
-    <button class="btn ghost" onclick="quitGame()">← 放棄返回</button>
-  </section>
+  
 
   <!-- 抓貓貓 -->
-  <section id="s-catch" class="screen">
-    <div class="qhead"><span id="catchScore">0 分</span><span class="timer" id="catchTimer">30s</span></div>
-    <div class="card" style="padding:10px">
-      <p class="muted" style="margin:2px 0 8px;text-align:center;font-size:13px">點貓咪 +50 分,點到新郎(穿西裝)會 -30 分!⚠️</p>
-      <div class="catcharea" id="catchArea"></div>
-    </div>
-    <button class="btn ghost" onclick="quitGame()">← 放棄返回</button>
-  </section>
+  
 
   <!-- 小遊戲結算 -->
-  <section id="s-game-result" class="screen">
-    <div class="bigstate" id="gameResultBox"></div>
-  </section>
+  
 
   <!-- 電錶判讀王 -->
-  <section id="s-meter" class="screen">
-    <div class="qhead"><span id="meterScore">0 分</span><span id="meterProgress" style="font-size:13px;color:var(--ink-soft)">第 1 / 5 題</span><span class="timer" id="meterTimer">--</span></div>
-    <div class="card" style="text-align:center">
-      <p class="muted" style="margin:0 0 6px;font-size:13px">⚡ 機械電錶讀法:指針若停在兩數之間,取<b>較小</b>的那個數字!相鄰指針轉向相反</p>
-      <div class="meterdials" id="meterDials"></div>
-      <input id="meterInput" type="tel" inputmode="numeric" placeholder="輸入度數" style="text-align:center;font-size:24px;letter-spacing:4px;margin-top:14px">
-      <button class="btn" id="meterBtn" style="background:#d98e00;color:#fff;width:100%;margin-top:12px" onclick="meterSubmit()">送出 ⚡</button>
-      <div id="meterFeedback" style="margin-top:10px;font-weight:800;min-height:22px"></div>
-    </div>
-    <button class="btn ghost" onclick="quitGame()">← 放棄返回</button>
-  </section>
+  
 
   <!-- 接電路大師 -->
-  <section id="s-wire" class="screen">
-    <div class="qhead"><span id="wireScore">第 1 關 · 0 分</span><span class="timer" id="wireTimer">--</span></div>
-    <div class="card" style="padding:14px">
-      <p class="muted" style="margin:2px 0 10px;text-align:center;font-size:13px">🔌 點管線轉方向,把 ⚡ 電廠接到 🏠 房子,全部接通就過關!</p>
-      <div class="wiregrid" id="wireGrid"></div>
-    </div>
-    <button class="btn ghost" onclick="quitGame()">← 放棄返回</button>
-  </section>
+  
 
   <!-- 神準丟紗布 -->
-  <section id="s-toss" class="screen">
-    <div class="qhead"><span id="tossScore">0 分</span><span id="tossBalls" style="font-size:13px;color:var(--ink-soft)">剩 10 顆</span><span id="tossIn" style="font-size:13px;color:#3aa39a;font-weight:800">進 0</span></div>
-    <div class="card" style="padding:10px">
-      <p class="muted" style="margin:2px 0 8px;text-align:center;font-size:13px">🩹 從護理師那往右拖:拖越遠力道越大,上下決定角度,鬆手丟進盤子!</p>
-      <div class="tossarea" id="tossArea">
-        <img class="tosstray" id="tossTray" src="" alt="收納桶">
-        <div class="tossnurse" id="tossNurse">👩‍⚕️</div>
-        <div class="tossball" id="tossBall"><div class="gauze"></div></div>
-        <div class="tossaim" id="tossAim"></div>
-      </div>
-    </div>
-    <button class="btn ghost" onclick="quitGame()">← 放棄返回</button>
-  </section>
+  
 
   <section id="s-wish" class="screen">
     <div class="brand"><h1>💌 祝福留言</h1><div class="rule"></div></div>
@@ -1618,12 +1459,13 @@ function openHostLobby(){
     setTimeout(()=>{ firstLoad=false; }, 1000);
     hostWatchInteractions();
     // 持續監聽開關狀態,讓按鈕標籤即時反映
-    db.ref('rooms/'+ROOM+'/state/gamesOpen').on('value', s=>{ state.gamesOpen=!!s.val(); updateOpenBtn('games'); });
+
     db.ref('rooms/'+ROOM+'/state/quizOpen').on('value', s=>{ state.quizOpen=!!s.val(); updateOpenBtn('quiz'); });
   }
 }
 // 主持人:開關小遊戲 / 快問快答
 function toggleOpen(which){
+  if(which!=='quiz')return;
   const key = which==='games' ? 'gamesOpen' : 'quizOpen';
   db.ref('rooms/'+ROOM+'/state/'+key).once('value').then(s=>{
     const cur=!!s.val();
@@ -1644,7 +1486,7 @@ function refreshOpenButtons(){
   db.ref('rooms/'+ROOM+'/state').once('value').then(s=>{
     const st=s.val()||{};
     state.gamesOpen=!!st.gamesOpen; state.quizOpen=!!st.quizOpen;
-    updateOpenBtn('games'); updateOpenBtn('quiz');
+    updateOpenBtn('quiz');
   });
 }
 
@@ -1909,7 +1751,7 @@ function replayQuiz(){
 // 主持人:重置快問快答(分數歸零 + 退回「還沒開始」,賓客會看到敬請期待)
 // 不影響:留言、照片、小遊戲分數、已設定的題目
 function resetQuiz(){
-  if(!confirm('確定要重置快問快答嗎?\n\n會把所有人的快問快答分數歸零、退回「尚未開始」狀態。\n(留言、照片、小遊戲分數、題目設定都不受影響)')) return;
+  if(!confirm('確定要重置快問快答嗎?\n\n會把所有人的快問快答分數歸零、退回「尚未開始」狀態。\n(留言、照片、樂透簽注、題目設定都不受影響)')) return;
   db.ref('rooms/'+state.room+'/players').once('value',s=>{
     const players=s.val()||{}; const updates={};
     Object.keys(players).forEach(pid=>{ updates['players/'+pid+'/score']=0; updates['players/'+pid+'/last']=null; });
@@ -2073,8 +1915,9 @@ function enterHub(){
   document.getElementById('hubTitle').textContent=state.title;
   document.getElementById('hubName').textContent='你是 '+state.name;
   watchHubWishes();
-  watchPkAsPlayer();
+
   show('s-hub');
+  if(typeof lottoWatch==='function'){lottoWatch();lottoFollowDraw();}
 }
 
 // 大廳:祝福牆(堆疊可捲動)+ 彈幕(新祝福飄過)
@@ -2275,10 +2118,11 @@ function avatarHTML2(p,cls){
   return '<span class="'+cls+' ph">'+((p.name||'?').slice(0,1))+'</span>';
 }
 
-const HUB_SCREENS=['s-hub','s-wish','s-song','s-photo','s-quiz-soon'];
+const HUB_SCREENS=['s-lottery','s-hub','s-wish','s-song','s-photo','s-quiz-soon'];
 function onHubScreen(){ const a=document.querySelector('.screen.active'); return a && HUB_SCREENS.includes(a.id); }
 
 function watchGameAsPlayer(){
+  if(typeof lottoWatch==='function')lottoWatch();
   const root=db.ref('rooms/'+state.room);
   root.child('state').on('value', s=>{
     const st=s.val(); if(!st) return;
@@ -2289,14 +2133,14 @@ function watchGameAsPlayer(){
     const sub=document.getElementById('quizCardSub');
     if(sub) sub.textContent = state.quizStarted ? '進行中 · 點我加入 🔴' : (state.quizOpen ? '已開放 · 點我進入' : '尚未開放 ⏳');
     const gsub=document.getElementById('gamesCardSub');
-    if(gsub) gsub.textContent = state.gamesOpen ? '已開放 · 快來玩!' : '尚未開放 ⏳';
+
     // 若正在看「未開放」等候畫面,主持人一開放就自動進去
     const act=document.querySelector('.screen.active');
     if(act && act.id==='s-gate'){
-      if(state.gamesOpen && document.getElementById('gateTitle').textContent.includes('小遊戲')) openMiniGames();
-      else if(state.quizOpen && document.getElementById('gateTitle').textContent.includes('快問快答')) openQuizFromHub();
+      if(state.quizOpen && document.getElementById('gateTitle').textContent.includes('快問快答')) openQuizFromHub();
     }
 
+    if(typeof lottoGuestDrawing==='function'&&lottoGuestDrawing())return;
     if(st.phase==='question'){
       // 題目是即時同步、時間敏感 → 一律拉進題目
       loadPlayerQuestion();
@@ -2642,7 +2486,7 @@ function openLeaderboard(){
 function lbSwitch(mode){
   game.lbMode=mode;
   document.getElementById('lbTabQuiz').classList.toggle('on', mode==='quiz');
-  document.getElementById('lbTabMini').classList.toggle('on', mode==='mini');
+  mode='quiz'; game.lbMode='quiz';
   const picker=document.getElementById('lbGamePicker');
   if(mode==='quiz'){
     picker.style.display='none';
@@ -2885,7 +2729,7 @@ function openPkScreen(){
   if(mA) mA.innerHTML=''; if(mB) mB.innerHTML='';
   setScreen('pk');
   show('s-pk-screen');
-  watchPkScreen();
+
   // 大螢幕倒數(抓貓/丟紗布為限時;配對為先完成者勝,倒數僅作保險)
   startPkScreenCountdown();
 }
@@ -3683,7 +3527,7 @@ function enterScreenMode(){
   // 快問快答進行中,投影自動跟著題目/公布/排行榜
   watchQuizForScreen();
   // PK 即時重現
-  watchPkScreen();
+
 }
 function renderScreenView(v){
   if(v==='wall'){ show('s-host-wall'); }
@@ -3699,7 +3543,7 @@ function renderScreenView(v){
       show('s-lb');
     });
   }
-  else if(v==='pk'){ show('s-pk-screen'); }
+  else if(v==='pk'){ show('s-screen-idle'); }
   else { show('s-screen-idle'); }
 }
 // 投影裝置:快問快答時自動顯示題目/公布(從 Firebase 已公開的 question 節點)
@@ -3766,29 +3610,33 @@ function screenRenderReveal(){
 
 </script>
 <script>
-let lottoData={},lottoSelected=[],lottoRoom=null,lottoTick=null,lottoBusy=false,lottoCelebrated='',lottoOffset=0,lottoOffsetReady=false,lottoAutoClosing=false;
+let lottoData={},lottoSelected=[],lottoRoom=null,lottoTick=null,lottoBusy=false,lottoCelebrated='',lottoOffset=0,lottoOffsetReady=false,lottoAutoClosing=false,lottoGuestFollowKey='';
 const lottoNow=()=>Date.now()+lottoOffset;
 const lottoExpired=d=>d.phase==='open'&&Number.isFinite(d.closesAt)&&lottoNow()>=d.closesAt;
+const lottoGuestDrawing=()=>state.role==='player'&&lottoData.phase==='drawing'&&lottoNow()<((lottoData.result?.startedAt||0)+11000);
+function lottoFollowDraw(){if(state.role!=='player'||!state.pid||!lottoData.result||!['drawing','done'].includes(lottoData.phase))return;const key=(state.room||ROOM)+':'+lottoData.round;if(lottoGuestFollowKey!==key){lottoGuestFollowKey=key;show('s-lottery');}else if(lottoGuestDrawing()&&!document.getElementById('s-lottery').classList.contains('active'))show('s-lottery');}
 const lottoRef=()=>db.ref('rooms/'+(state.room||ROOM)+'/lottery');
-function lottoWatch(){if(!lottoOffsetReady){lottoOffsetReady=true;db.ref('.info/serverTimeOffset').on('value',s=>{lottoOffset=Number(s.val())||0;});}const room=state.room||ROOM;if(lottoRoom===room)return;if(lottoRoom)db.ref('rooms/'+lottoRoom+'/lottery').off();lottoRoom=room;lottoRef().on('value',s=>{const next=s.val()||{};if(next.round!==lottoData.round)lottoSelected=[];lottoData=next;lottoRender();});}
+function lottoWatch(){if(!lottoOffsetReady){lottoOffsetReady=true;db.ref('.info/serverTimeOffset').on('value',s=>{lottoOffset=Number(s.val())||0;});}const room=state.room||ROOM;if(lottoRoom===room)return;if(lottoRoom)db.ref('rooms/'+lottoRoom+'/lottery').off();lottoRoom=room;lottoRef().on('value',s=>{const next=s.val()||{};if(next.round!==lottoData.round)lottoSelected=[];lottoData=next;lottoFollowDraw();lottoRender();});}
 function openLottery(){lottoWatch();if(state.role==='host')setScreen('lottery');show('s-lottery');lottoRender();}
-function lottoPickNumber(n){if(lottoData.phase!=='open'||lottoExpired(lottoData)||lottoData.entries?.[state.pid])return;if(lottoSelected.includes(n))lottoSelected=lottoSelected.filter(v=>v!==n);else if(lottoSelected.length<6)lottoSelected.push(n);lottoSelected.sort((a,b)=>a-b);lottoRender();}
+function lottoPickNumber(n){if(lottoData.phase!=='open'||lottoExpired(lottoData)||lottoData.entries?.[state.pid])return;if(lottoSelected.includes(n))lottoSelected=lottoSelected.filter(v=>v!==n);else if(lottoSelected.length<6)lottoSelected.push(n);else toast('已選滿 6 個，點已選號碼取消後即可換號');lottoSelected.sort((a,b)=>a-b);lottoRender();}
 function lottoQuick(){if(lottoData.phase!=='open'||lottoExpired(lottoData)||lottoData.entries?.[state.pid])return;let a=Array.from({length:49},(_,i)=>i+1);for(let i=48;i>0;i--){let j=lottoRandom(i+1);[a[i],a[j]]=[a[j],a[i]];}lottoSelected=a.slice(0,6).sort((a,b)=>a-b);lottoRender();}
 function lottoRandom(n){const a=new Uint32Array(1),limit=Math.floor(4294967296/n)*n;do{crypto.getRandomValues(a);}while(a[0]>=limit);return a[0]%n;}
-async function lottoSend(){if(lottoBusy||!state.pid||lottoSelected.length!==6)return;lottoBusy=true;lottoRender();const numbers=[...lottoSelected],round=lottoData.round;try{const r=await lottoRef().transaction(d=>{if(!d||d.phase!=='open'||d.round!==round||lottoExpired(d)||d.entries?.[state.pid])return;const entries=d.entries||{};if(Object.values(entries).some(e=>e.numbers.join(',')===numbers.join(',')))return;entries[state.pid]={name:state.name,numbers,at:Date.now()};return {...d,entries};});toast(r.committed?'簽注成功，祝你好運！':'這組已有人選，或已封牌，請重新確認');}catch(e){toast('簽注未成功，請檢查連線');}finally{lottoBusy=false;lottoRender();}}
+async function lottoSend(){if(lottoBusy||!state.pid||lottoSelected.length!==6)return;lottoBusy=true;lottoRender();const numbers=[...lottoSelected],round=lottoData.round;try{const r=await lottoRef().transaction(d=>{if(!d||d.phase!=='open'||d.round!==round||lottoExpired(d)||d.entries?.[state.pid])return;const entries=d.entries||{};if(Object.values(entries).some(e=>e.numbers.join(',')===numbers.join(',')))return;entries[state.pid]={name:state.name,numbers,at:Date.now()};return {...d,entries};});toast(r.committed?'簽注成功，祝你好運！':lottoData.entries?.[state.pid]?'本輪已簽注成功':lottoData.phase!=='open'||lottoExpired(lottoData)?'已封牌，無法再簽注':'這 6 個號碼的整組組合已有人選，請換一個號碼');}catch(e){toast('簽注未成功，請檢查連線');}finally{lottoBusy=false;lottoRender();}}
 async function lottoStartRound(){if(state.role!=='host'||lottoBusy)return;if(lottoData.phase&&lottoData.phase!=='done'){toast('請先完成本輪開獎');return;}lottoBusy=true;try{const minutes=Number(document.getElementById('lottoMinutes').value);if(!Number.isInteger(minutes)||minutes<1||minutes>60){toast('簽注時間請填 1～60 的整數');return;}const openedAt=lottoNow(),closesAt=openedAt+minutes*60000;const prize=document.getElementById('lottoPrize').value.trim();if(!prize){toast('請填寫獎項');return;}const r=await lottoRef().transaction(d=>{if(d?.phase&&d.phase!=='done')return;return {round:(d?.round||0)+1,phase:'open',prize,openedAt,closesAt,minutes,entries:{},history:d?.history||{}};});if(!r.committed)toast('已有進行中的輪次');}catch(e){toast('開放失敗，請檢查連線');}finally{lottoBusy=false;lottoRender();}}
 async function lottoCloseRound(){if(state.role!=='host')return;try{await lottoRef().transaction(d=>d?.phase==='open'?{...d,phase:'closed'}:undefined);}catch(e){toast('封牌失敗');}}
-async function lottoDraw(){if(state.role!=='host'||lottoBusy)return;lottoBusy=true;try{const r=await lottoRef().transaction(d=>{if(d?.phase!=='closed')return;const entries=Object.entries(d.entries||{});if(!entries.length)return;const [pid,winner]=entries[lottoRandom(entries.length)];const result={pid,name:winner.name,numbers:winner.numbers,prize:d.prize,startedAt:Date.now()};return {...d,phase:'drawing',result,history:{...d.history,[d.round]:result}};});if(!r.committed)toast('請先封牌，且至少要有一注');}catch(e){toast('開獎失敗，請檢查連線');}finally{lottoBusy=false;lottoRender();}}
-function lottoRender(){if(!document.getElementById('lottoStatus'))return;const d=lottoData,host=state.role==='host',screen=state.role==='screen',mine=d.entries?.[state.pid],count=Object.keys(d.entries||{}).length;let revealed=d.phase==='done'?6:d.phase==='drawing'?Math.min(6,Math.max(0,Math.floor((Date.now()-d.result.startedAt-2000)/1500))):0;const finished=revealed===6,expired=lottoExpired(d),phase=expired?'closed':d.phase;
+async function lottoDraw(){if(state.role!=='host'||lottoBusy)return;lottoBusy=true;try{const r=await lottoRef().transaction(d=>{if(d?.phase!=='closed')return;const entries=Object.entries(d.entries||{});if(!entries.length)return;const [pid,winner]=entries[lottoRandom(entries.length)];const result={pid,name:winner.name,numbers:winner.numbers,prize:d.prize,startedAt:lottoNow()+1200};return {...d,phase:'drawing',result,history:{...d.history,[d.round]:result}};});if(!r.committed)toast('請先封牌，且至少要有一注');}catch(e){toast('開獎失敗，請檢查連線');}finally{lottoBusy=false;lottoRender();}}
+function lottoRender(){if(!document.getElementById('lottoStatus'))return;if(lottoGuestDrawing())lottoFollowDraw();const d=lottoData,host=state.role==='host',screen=state.role==='screen',mine=d.entries?.[state.pid],count=Object.keys(d.entries||{}).length;let revealed=d.phase==='done'?6:d.phase==='drawing'?Math.min(6,Math.max(0,Math.floor((lottoNow()-d.result.startedAt-2000)/1500))):0;const finished=revealed===6,expired=lottoExpired(d),phase=expired?'closed':d.phase;
 const remaining=Math.max(0,Math.ceil(((d.closesAt||0)-lottoNow())/1000));document.getElementById('lottoCountdown').textContent=d.phase==='open'?(expired?'簽注時間結束':'簽注倒數 '+String(Math.floor(remaining/60)).padStart(2,'0')+':'+String(remaining%60).padStart(2,'0')):d.phase==='closed'?'已封牌 · 等待開獎':'';document.getElementById('lottoDeadline').textContent=d.closesAt?'本輪簽注 '+d.minutes+' 分鐘 · 截止 '+new Date(d.closesAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZone:'Asia/Taipei'})+'（台灣時間）':'';document.getElementById('lottoMinutes').disabled=!!(d.phase&&d.phase!=='done');document.getElementById('lottoPrize').disabled=!!(d.phase&&d.phase!=='done');
 if(expired&&host&&!lottoAutoClosing){lottoAutoClosing=true;Promise.resolve(lottoRef().transaction(v=>v?.round===d.round&&lottoExpired(v)?{...v,phase:'closed'}:undefined)).catch(()=>toast('封牌同步失敗，已停止接受簽注')).finally(()=>{lottoAutoClosing=false;});}
-document.getElementById('lottoHost').style.display=host?'block':'none';document.getElementById('lottoBack').style.display=screen?'none':'block';document.getElementById('lottoPick').style.display=!host&&!screen&&phase==='open'&&!mine?'block':'none';document.getElementById('lottoStatus').textContent=d.phase?'第 '+d.round+' 輪 · '+({open:'開放簽注',closed:'已封牌',drawing:finished?'開獎完成':'開獎中…',done:'開獎完成'}[phase])+' · '+count+' 注':'等待主持人開放簽注';document.getElementById('lottoMachine').classList.toggle('running',d.phase==='drawing'&&!finished);
+document.getElementById('lottoHost').style.display=host?'block':'none';document.getElementById('lottoBack').style.display=screen||(!host&&lottoGuestDrawing())?'none':'block';document.getElementById('lottoPick').style.display=!host&&!screen&&phase==='open'&&!mine?'block':'none';document.getElementById('lottoStatus').textContent=d.phase?'第 '+d.round+' 輪 · '+({open:'開放簽注',closed:'已封牌',drawing:finished?'開獎完成':'開獎中…',done:'開獎完成'}[phase])+' · '+count+' 注':'等待主持人開放簽注';document.getElementById('lottoMachine').classList.toggle('running',d.phase==='drawing'&&!finished);
 document.getElementById('lottoBalls').innerHTML=Array.from({length:6},(_,i)=>'<div class="lotto-ball '+(i<revealed?'':'hiddenball')+'">'+(i<revealed?String(d.result.numbers[i]).padStart(2,'0'):'?')+'</div>').join('');document.getElementById('lottoResult').innerHTML=finished?'<h2>恭喜 '+esc(d.result.name)+'！</h2><p style="font-size:22px;color:var(--gold-d);font-weight:700">'+esc(d.result.prize)+'</p><p class="muted">請得主向主持人領取獎項 🎉</p>':'<h2>好運正在靠近</h2><p class="muted">本輪獎項：'+esc(d.prize||'50 元大樂透一張 ＋ 50 元自選加碼金')+'</p>';
 document.getElementById('lottoTicket').textContent=mine?'你的簽注：'+mine.numbers.map(n=>String(n).padStart(2,'0')).join(' · ')+(finished?(d.result.pid===state.pid?' 🎉 恭喜中獎！':' · 謝謝參加，下輪再試好手氣！'):' · 已成功登記'):'';
-document.getElementById('lottoGrid').innerHTML=Array.from({length:49},(_,i)=>'<button aria-pressed="'+lottoSelected.includes(i+1)+'" class="'+(lottoSelected.includes(i+1)?'selected':'')+'" onclick="lottoPickNumber('+(i+1)+')">'+(i+1)+'</button>').join('');document.getElementById('lottoSelection').textContent='已選 '+lottoSelected.length+' / 6：'+lottoSelected.join(' · ');document.getElementById('lottoSubmit').disabled=lottoBusy||phase!=='open'||lottoSelected.length!==6;document.getElementById('lottoOpen').disabled=lottoBusy||!!(d.phase&&d.phase!=='done');document.getElementById('lottoClose').disabled=d.phase!=='open';document.getElementById('lottoDraw').disabled=lottoBusy||d.phase!=='closed'||!count;document.getElementById('lottoEntries').textContent=host?Object.values(d.entries||{}).map(e=>e.name+'：'+e.numbers.join('、')).join(' / '):'';
+const grid=document.getElementById('lottoGrid');if(!grid.children.length){grid.innerHTML=Array.from({length:49},(_,i)=>'<button type="button" data-number="'+(i+1)+'" aria-label="號碼 '+(i+1)+'" onclick="lottoPickNumber('+(i+1)+')">'+(i+1)+'</button>').join('');}Array.from(grid.children).forEach((b,i)=>{const selected=lottoSelected.includes(i+1);b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));b.disabled=phase!=='open'||!!mine||lottoBusy;});document.getElementById('lottoSelection').textContent='已選 '+lottoSelected.length+' / 6：'+lottoSelected.join(' · ')+(lottoSelected.length===6?'（點已選號碼可換號）':'');const control=document.getElementById('toggleLotteryBtn');if(control)control.textContent='🎱 樂透：'+({open:expired?'簽注已截止':'簽注開放中',closed:'已封牌',drawing:finished?'開獎完成':'開獎中',done:'開獎完成'}[d.phase]||'設定時間與開放簽注');document.getElementById('lottoSubmit').disabled=lottoBusy||phase!=='open'||lottoSelected.length!==6;document.getElementById('lottoOpen').disabled=lottoBusy||!!(d.phase&&d.phase!=='done');document.getElementById('lottoClose').disabled=d.phase!=='open';document.getElementById('lottoDraw').disabled=lottoBusy||d.phase!=='closed'||!count;document.getElementById('lottoEntries').textContent=host?Object.values(d.entries||{}).map(e=>e.name+'：'+e.numbers.join('、')).join(' / '):'';
 if(finished&&lottoCelebrated!==String(d.round)&&document.getElementById('s-lottery').classList.contains('active')){lottoCelebrated=String(d.round);confetti(3000);}if(d.phase==='open'||(d.phase==='drawing'&&!finished)){if(!lottoTick)lottoTick=setInterval(lottoRender,200);}else if(lottoTick){clearInterval(lottoTick);lottoTick=null;}if(finished&&d.phase==='drawing'&&host)lottoRef().transaction(v=>v?.phase==='drawing'&&v.round===d.round?{...v,phase:'done'}:undefined).catch(()=>{});
 }
+const lottoOldHostLobby=openHostLobby;openHostLobby=function(){lottoOldHostLobby();lottoWatch();lottoRender();};
 const lottoOldScreen=renderScreenView;renderScreenView=function(v){if(v==='lottery'){lottoWatch();show('s-lottery');lottoRender();}else lottoOldScreen(v);};
+if(state.role==='player'&&state.pid){lottoWatch();lottoFollowDraw();}
 </script>
 </body>
 </html>
