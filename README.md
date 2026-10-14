@@ -1,6 +1,6 @@
 # 宇童 ♡ 懷筑｜婚禮網站
 
-這個分支準備取代原本 GitHub Pages 的單一 `index.html` 網站。原版保留在 Git 提交 `aa6d00a`。新網站包含賓客報到、頭像、婚禮相簿、祝福彈幕、快問快答、大樂透與主持人控制台。
+這個網站已取代原本 GitHub Pages 的單一 `index.html` 網站。原版保留在 Git 提交 `aa6d00a`。新網站包含賓客報到、頭像、婚禮相簿、祝福彈幕、快問快答、大樂透與主持人控制台。
 
 ## 架構
 
@@ -9,7 +9,7 @@
 - Cloudflare D1：保存賓客、留言、題目、答題與彩券。
 - Cloudflare R2：保存賓客上傳的照片與頭像。
 
-GitHub Pages 無法單獨執行本專案的 API。完成 Workers 部署後，可把 GitHub Pages 原網址轉址到 Workers 網址；此分支尚未設定轉址，避免在 Worker 上線前中斷原網站。
+GitHub Pages 無法單獨執行本專案的 API。根目錄的 `index.html` 會把原網址 `https://yutong-huaichu-wedding.github.io/wedding/` 轉到 Cloudflare Workers。婚禮 QR Code 指向 GitHub Pages 原網址，以便將來更換 Workers 網址時不用重印。
 
 ## 首次部署（Cloudflare 帳號持有人執行）
 
@@ -29,6 +29,6 @@ GitHub Pages 無法單獨執行本專案的 API。完成 Workers 部署後，可
 
 ## 更新網站
 
-先將本機尚未提交的相簿限制修改上傳到 GitHub，再執行 `npm run build` 及 `npx wrangler deploy --config dist/server/wrangler.json`。確認 Cloudflare Workers 正常運作、D1/R2 綁定與主持人密碼已設定後，再把部署分支合併至 `main`，並設定原本 GitHub Pages 網址的轉址。不要在 Worker 就緒前刪除現有 GitHub 首頁。
+修改網站後，在專案資料夾執行 `npm run build`，接著執行 `npx wrangler deploy --config dist/server/wrangler.json` 來更新 Cloudflare 網站。程式碼要另外提交並推送至 GitHub。若更改 Cloudflare 網址，也要更新根目錄 `index.html` 的轉址目標。
 
-目前 D1 資料庫、R2 bucket、主持人密碼及 `workers.dev` 網址都已建立。測試網址是 `https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/wedding_1212.html`。Cloudflare 回報部署成功，但建立網址後立即從此工作環境連線時 TLS 交握失敗，尚未完成瀏覽器實測。上述相簿限制修改目前只在本機，尚未提交或推送至 GitHub，也尚未重新部署。GitHub 的 `main` 仍是舊網站。
+目前 D1 資料庫、R2 Standard bucket、主持人密碼及 `workers.dev` 網址都已建立。網站網址是 `https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/wedding_1212`。GitHub 的 `main` 已換成轉址首頁。QR 圖檔放在上一層婚禮資料夾：`婚禮報到_QR.png` 與 `婚禮報到_QR.svg`。
