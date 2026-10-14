@@ -24,7 +24,7 @@ export const sessionCookie = (request: Request, token: string, maxAge: number) =
 export const validNumbers = (value: unknown): value is number[] => Array.isArray(value) && value.length === 6 && value.every(n => Number.isInteger(n) && n >= 1 && n <= 49) && new Set(value).size === 6;
 export const lotteryDefault = { status: 'open', result: [] as number[], startedAt: 0 };
 export const quizDefault = { index: -1, open: false };
-export const avatarPresets = ['cat','rabbit','bear','panda','fox','chick','frog','penguin'];
+export const avatarPresets = ['cat','rabbit','bear','panda','fox','chick','frog','penguin','dog','koala','hamster','tiger','lion','pig','monkey','owl','unicorn','butterfly','sunflower','cherry','heart','star','cake'];
 
 export async function state(request: Request) {
   const admin = await isAdmin(request);
@@ -86,6 +86,19 @@ export async function action(request: Request) {
   }
   const admin = await isAdmin(request);
   const me = await guest(request);
+  if (type === 'profileUpdate') {
+    if (!me) return bad('請先報到', 401);
+    const name = clean(body.name, 25);
+    if (name.length < 2) return bad('請輸入至少兩個字的姓名');
+    if (name === me.name) return good({ ok: true });
+    await db().batch([
+      db().prepare('UPDATE guests SET name=? WHERE id=?').bind(name, me.id),
+      db().prepare('UPDATE blessings SET name=? WHERE guest_id=?').bind(name, me.id),
+      db().prepare('UPDATE photos SET name=? WHERE guest_id=?').bind(name, me.id),
+      db().prepare('UPDATE tickets SET name=? WHERE guest_id=?').bind(name, me.id)
+    ]);
+    return good({ ok: true });
+  }
   if (type === 'avatarUpdate') {
     if (!me) return bad('請先報到', 401);
     const value = clean(body.avatarValue, 20);
@@ -142,7 +155,7 @@ export async function action(request: Request) {
   }
   if (type === 'draw') {
     const lottery = await setting('lottery', lotteryDefault);
-    if (lottery.status === 'drawn' || lottery.status === 'drawing') return bad('本輪已開獎');
+    if (lottery.status !== 'closed') return bad(lottery.status === 'open' ? '請先截止選號，再開始開獎' : '本輪已開獎');
     await setSetting('lottery', { ...lottery, status: 'drawing' });
     const tickets = await all('SELECT numbers FROM tickets ORDER BY created_at');
     if (!tickets.length) { await setSetting('lottery', { ...lottery, status: 'closed' }); return bad('至少要有一張有效彩券'); }
@@ -174,6 +187,16 @@ export async function action(request: Request) {
     const quiz = await setting('quiz', quizDefault);
     if (quiz.index >= 0) return bad('測驗進行中不可刪題');
     await run('DELETE FROM questions WHERE id=?', clean(body.id, 80));
+    return good({ ok: true });
+  }
+  if (type === 'questionReorder') {
+    const quiz = await setting('quiz', quizDefault);
+    if (quiz.index >= 0) return bad('測驗進行中不可移動題目');
+    const ids = body.ids;
+    const questions = await all('SELECT id FROM questions');
+    if (!Array.isArray(ids) || ids.length !== questions.length || new Set(ids).size !== ids.length || !ids.every((id: unknown) => typeof id === 'string' && questions.some(q => q.id === id))) return bad('題目順序無效');
+    const order = JSON.stringify(ids);
+    await run('UPDATE questions SET position=(SELECT CAST(key AS INTEGER)+1 FROM json_each(?) WHERE value=questions.id) WHERE id IN (SELECT value FROM json_each(?))', order, order);
     return good({ ok: true });
   }
   if (type === 'quizNext') {
