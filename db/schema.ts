@@ -1,0 +1,9 @@
+import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+export const guests = sqliteTable('guests', { id: text('id').primaryKey(), name: text('name').notNull(), tokenHash: text('token_hash').notNull().unique(), avatarKind: text('avatar_kind').notNull().default(''), avatarValue: text('avatar_value').notNull().default(''), createdAt: integer('created_at').notNull() });
+export const blessings = sqliteTable('blessings', { id: text('id').primaryKey(), guestId: text('guest_id').notNull(), name: text('name').notNull(), text: text('text').notNull(), createdAt: integer('created_at').notNull() });
+export const photos = sqliteTable('photos', { id: text('id').primaryKey(), guestId: text('guest_id').notNull(), name: text('name').notNull(), type: text('type').notNull(), createdAt: integer('created_at').notNull() });
+export const tickets = sqliteTable('tickets', { id: text('id').primaryKey(), guestId: text('guest_id').notNull().unique(), name: text('name').notNull(), numbers: text('numbers').notNull(), createdAt: integer('created_at').notNull() });
+export const questions = sqliteTable('questions', { id: text('id').primaryKey(), text: text('text').notNull(), options: text('options').notNull(), correct: integer('correct').notNull(), position: integer('position').notNull() });
+export const answers = sqliteTable('answers', { id: text('id').primaryKey(), questionId: text('question_id').notNull(), guestId: text('guest_id').notNull(), choice: integer('choice').notNull(), correct: integer('correct').notNull(), createdAt: integer('created_at').notNull() }, t => ({ uniqueAnswer: uniqueIndex('answers_question_guest').on(t.questionId,t.guestId) }));
+export const settings = sqliteTable('settings', { key: text('key').primaryKey(), value: text('value').notNull() });
+export const adminSessions = sqliteTable('admin_sessions', { tokenHash: text('token_hash').primaryKey(), expiresAt: integer('expires_at').notNull() });

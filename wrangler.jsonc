@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "yutong-huaichu-wedding",
+  "compatibility_date": "2026-05-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "vinext/server/fetch-handler",
+  "assets": {
+    "directory": "dist/client",
+    "not_found_handling": "none",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "yutong-huaichu-wedding",
+    "database_id": "00000000-0000-4000-8000-000000000000"
+  }],
+  "r2_buckets": [{
+    "binding": "BUCKET",
+    "bucket_name": "yutong-huaichu-wedding-photos"
+  }]
+}
