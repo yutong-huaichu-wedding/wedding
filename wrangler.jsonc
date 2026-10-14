@@ -12,7 +12,7 @@
   "d1_databases": [{
     "binding": "DB",
     "database_name": "yutong-huaichu-wedding",
-    "database_id": "00000000-0000-4000-8000-000000000000"
+    "database_id": "f803f271-2b19-47ee-bd7b-0feacafea8dc"
   }],
   "r2_buckets": [{
     "binding": "BUCKET",

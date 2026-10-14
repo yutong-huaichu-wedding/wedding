@@ -29,4 +29,4 @@ GitHub Pages 無法單獨執行本專案的 API。完成 Workers 部署後，可
 
 本分支已推送至 GitHub。確認 Cloudflare Workers 正常運作、D1/R2 綁定與主持人密碼已設定後，再把部署分支合併至 `main`，並設定原本 GitHub Pages 網址的轉址。不要在 Worker 就緒前刪除現有 GitHub 首頁。
 
-目前已完成本機編譯並上傳 GitHub；尚未登入使用者的 Cloudflare 帳號，也尚未建立該帳號內的 D1/R2 資源或部署正式網站。
+目前已完成本機編譯並上傳 GitHub；使用者的 Cloudflare 帳號已授權，D1 資料庫與表格已建立。R2 仍需由帳號持有人在 Cloudflare 控制台完成啟用，之後才能建立照片儲存空間與部署正式網站。
