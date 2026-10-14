@@ -1,0 +1,23 @@
+.rehearsal-overlay{display:none;position:fixed;inset:0;z-index:110;background:#33282bd9;padding:clamp(8px,2vw,24px);overflow:auto}
+.rehearsal-overlay.show{display:block}
+.rehearsal-window{max-width:1000px;margin:auto;background:#fffaf6;border-radius:20px;min-height:80vh;box-shadow:0 20px 60px #120d0d66;overflow:hidden}
+.rehearsal-header{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:20px 24px;background:#f7e8e4;border-bottom:1px solid #eadfd8}
+.rehearsal-header strong{font-size:20px;color:#874c5a}
+.rehearsal-header p{margin:4px 0 0;font-size:13px;color:#6c5a57}
+.rehearsal-tabs{display:flex;gap:8px;padding:15px 24px 0}
+.rehearsal-tabs button{border:1px solid #d9c3ba;border-radius:11px;padding:10px 14px;background:white;color:#a95d67;font-weight:700}
+.rehearsal-tabs button.active{background:#a95d67;color:white}
+.rehearsal-columns{display:grid;grid-template-columns:minmax(230px,1fr) minmax(300px,1.3fr);gap:18px;padding:18px 24px 30px}
+.rehearsal-columns section{border:1px solid #eadfd8;border-radius:15px;padding:20px;background:#fffdfb;min-width:0}
+.rehearsal-columns h3{margin-top:0}
+.rehearsal-columns p{font-size:14px;line-height:1.7;color:#665a57}
+.rehearsal-actions{display:flex;flex-direction:column;gap:10px;align-items:stretch}
+.rehearsal-actions button:disabled,.rehearsal-phone button:disabled{opacity:.5;cursor:not-allowed}
+.rehearsal-phone{background:#fffaf6;border:1px solid #eadfd8;border-radius:20px;padding:20px;max-width:460px;margin:auto;box-shadow:0 8px 25px #705a5115}
+.rehearsal-phone h3{margin:20px 0!important}
+.rehearsal-phone .quizopt{display:block}
+.rehearsal-numbers{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;margin:14px 0}
+.rehearsal-numbers .num{font-size:12px}
+.rehearsal-balls{display:flex;justify-content:center;gap:6px;flex-wrap:wrap;margin:20px 0}
+.rehearsal-ball{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-weight:800;background:#f1d4d3;color:#713c47}
+@media(max-width:700px){.rehearsal-columns{grid-template-columns:1fr;padding:12px;gap:12px}.rehearsal-header{padding:15px;align-items:flex-start}.rehearsal-header strong{font-size:17px}.rehearsal-header button{font-size:12px;padding:8px}.rehearsal-tabs{padding:12px 12px 0}.rehearsal-columns section{padding:15px}}

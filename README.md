@@ -21,7 +21,7 @@ GitHub Pages 無法單獨執行本專案的 API。根目錄的 `index.html` 會�
    - `npx wrangler d1 execute DB --remote --config wrangler.jsonc --file drizzle/0000_cold_namorita.sql`
    - `npx wrangler d1 execute DB --remote --config wrangler.jsonc --file drizzle/0001_yielding_magus.sql`
 6. 執行 `npm run build`，接著執行 `npx wrangler deploy --config dist/server/wrangler.json`。
-7. 執行 `npx wrangler secret put ADMIN_PASSWORD --name yutong-huaichu-wedding`，在提示時輸入一組新的強密碼。密碼不要提交到 GitHub。
+7. 執行 `npx wrangler secret put ADMIN_PASSWORD --name yutong-huaichu-wedding`，在提示時設定主持人密碼。密碼不要提交到 GitHub。
 
 部署後先用兩台手機測試姓名與頭像報到、照片上傳、留言、遊戲與主持人登入，再安排 100 位以上的壓力測試。
 
@@ -32,3 +32,13 @@ GitHub Pages 無法單獨執行本專案的 API。根目錄的 `index.html` 會�
 修改網站後，在專案資料夾執行 `npm run build`，接著執行 `npx wrangler deploy --config dist/server/wrangler.json` 來更新 Cloudflare 網站。程式碼要另外提交並推送至 GitHub。若更改 Cloudflare 網址，也要更新根目錄 `index.html` 的轉址目標。
 
 目前 D1 資料庫、R2 Standard bucket、主持人密碼及 `workers.dev` 網址都已建立。網站網址是 `https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/wedding_1212`。GitHub 的 `main` 已換成轉址首頁。QR 圖檔放在上一層婚禮資料夾：`婚禮報到_QR.png` 與 `婚禮報到_QR.svg`。
+
+## 現場畫面與操作
+
+| 功能 | 賓客手機 | 主持人控制台 | 現場投影 |
+| --- | --- | --- | --- |
+| 快問快答 | 等待出題；開放時點選 A–D，一人每題只能答一次；截止後看正確答案及自己的累計分數。 | 編輯與排序題庫，按「公布下一題／開啟作答」及「停止作答／顯示答案」，查看得分排行榜。 | 顯示目前題目與選項。 |
+| 幸福大樂透 | 開放時從 1–49 選六碼並送出一張彩券；截止後保留自己的號碼；開獎時逐顆看到號碼及六碼全中者。 | 依序開放、截止、開獎；看有效彩券與投注名單。開獎會從已送出的完整彩券中抽一張。 | 逐顆顯示開出的六碼，最後顯示得獎者。 |
+| 祝福牆 | 送出祝福、瀏覽留言與緩慢飄過的彈幕。 | 查看或刪除留言，開啟祝福牆投影。 | 祝福與姓名、頭像以彈幕飄過。 |
+
+主持人在控制台按「試玩模式」，可在自己的分頁操作快問快答與大樂透，右側同步顯示賓客手機畫面的模擬版。試玩不寫入 D1，也不會出現在正式賓客或投影畫面；關閉試玩後模擬資料清空。投影畫面須由主持人電腦連接現場螢幕，再從控制台開啟。

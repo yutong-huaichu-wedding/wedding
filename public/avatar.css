@@ -46,3 +46,11 @@ body.needs-checkin #checkin .desc{text-align:center}
 .question-actions button{font-size:12px;padding:8px 11px}
 @media(max-width:560px){.avatar-choice-grid{grid-template-columns:repeat(4,1fr)}.avatar-choice{font-size:34px}.avatar-preview-row{margin-top:10px}.checkin-actions .primary{width:100%}#navProfile{order:3}}
 @media(max-width:560px){.question-options{grid-template-columns:1fr}.question-card summary{gap:7px;padding:12px}.question-summary-action{font-size:11px}}
+.falling-cats{position:fixed;inset:0;z-index:3;overflow:hidden;pointer-events:none}
+.falling-cats img{position:absolute;top:-90px;height:auto;opacity:.88;animation:cat-fall linear infinite;filter:drop-shadow(0 6px 10px #0002);pointer-events:auto;cursor:pointer}
+.falling-cats img.popped{animation:cat-pop .6s forwards!important}
+.cat-spark{position:fixed;z-index:4;pointer-events:none;font-size:26px;animation:cat-spark .7s forwards}
+@keyframes cat-fall{to{transform:translateY(118vh) rotate(360deg)}}
+@keyframes cat-pop{0%{transform:scale(1)}40%{transform:scale(1.4) rotate(20deg)}100%{transform:scale(0) rotate(180deg);opacity:0}}
+@keyframes cat-spark{0%{transform:translate(-50%,-50%) scale(.4);opacity:1}100%{transform:translate(-50%,-100%) scale(1.6);opacity:0}}
+@media(prefers-reduced-motion:reduce){.falling-cats,.cat-spark{display:none}}
