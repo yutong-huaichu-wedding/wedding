@@ -4,6 +4,8 @@ import { env } from 'cloudflare:workers';
 type Row = Record<string, any>;
 export const db = () => { if (!env.DB) throw new Error('Database unavailable'); return env.DB; };
 export const bucket = () => { if (!env.BUCKET) throw new Error('Photo storage unavailable'); return env.BUCKET; };
+export const mediaLimit = 1024 * 1024 * 1024;
+export const mediaBytes = async () => Number((await first('SELECT COALESCE(SUM(size),0) AS total FROM media'))?.total || 0);
 export const now = () => Date.now();
 export const bad = (message: string, status = 400) => Response.json({ error: message }, { status, headers: { 'cache-control': 'no-store' } });
 export const good = (value: unknown = {}) => Response.json(value, { headers: { 'cache-control': 'no-store' } });
@@ -89,7 +91,10 @@ export async function action(request: Request) {
     const value = clean(body.avatarValue, 20);
     if (!avatarPresets.includes(value)) return bad('請選擇有效的頭像');
     await run('UPDATE guests SET avatar_kind=?,avatar_value=? WHERE id=?', 'preset', value, me.id);
-    if (me.avatarKind === 'photo' && me.avatarValue) await bucket().delete('avatars/' + me.avatarValue);
+    if (me.avatarKind === 'photo' && me.avatarValue) {
+      await bucket().delete('avatars/' + me.avatarValue);
+      await run('DELETE FROM media WHERE id=?', me.avatarValue);
+    }
     return good({ ok: true });
   }
   if (type === 'blessing') {
@@ -193,14 +198,16 @@ export async function action(request: Request) {
     const id = clean(body.id, 80);
     await run('DELETE FROM photos WHERE id=?', id);
     await bucket().delete('photos/' + id);
+    await run('DELETE FROM media WHERE id=?', id);
     return good({ ok: true });
   }
   if (type === 'resetAll') {
     const photos = await all('SELECT id FROM photos');
     const avatars = await all("SELECT avatar_value AS value FROM guests WHERE avatar_kind='photo'");
     await db().batch(['DELETE FROM answers','DELETE FROM tickets','DELETE FROM blessings','DELETE FROM photos','DELETE FROM guests','DELETE FROM questions'].map(sql => db().prepare(sql)));
-    for (const photo of photos) await bucket().delete('photos/' + photo.id);
-    for (const avatar of avatars) await bucket().delete('avatars/' + avatar.value);
+    const keys = [...photos.map(photo => 'photos/' + photo.id), ...avatars.map(avatar => 'avatars/' + avatar.value)];
+    for (let i = 0; i < keys.length; i += 500) await bucket().delete(keys.slice(i, i + 500));
+    await run('DELETE FROM media');
     await setSetting('lottery', lotteryDefault);
     await setSetting('quiz', quizDefault);
     return good({ ok: true });

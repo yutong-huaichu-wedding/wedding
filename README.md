@@ -23,10 +23,12 @@ GitHub Pages 無法單獨執行本專案的 API。完成 Workers 部署後，可
 6. 執行 `npm run build`，接著執行 `npx wrangler deploy --config dist/server/wrangler.json`。
 7. 執行 `npx wrangler secret put ADMIN_PASSWORD --name yutong-huaichu-wedding`，在提示時輸入一組新的強密碼。密碼不要提交到 GitHub。
 
-部署後先用兩台手機測試姓名與頭像報到、照片上傳、留言、遊戲與主持人登入，再安排 100 位以上的壓力測試。婚禮當天建議使用 Workers Paid，並在 Cloudflare 控制台設定費用提醒。
+部署後先用兩台手機測試姓名與頭像報到、照片上傳、留言、遊戲與主持人登入，再安排 100 位以上的壓力測試。
+
+相簿會在瀏覽器壓縮照片，單張最多 600 KB、每位賓客最多 4 張；頭像最多 120 KB。伺服器以 D1 的 `media` 表記錄已使用容量，達 1 GB 後拒絕新上傳。R2 bucket 使用 Standard 儲存類別。一般頁面每 60 秒更新一次，遊戲頁每 8 秒、祝福牆每 10 秒、主持人畫面每 3 秒，背景分頁每 120 秒更新一次。這些限制控制儲存量、寫入次數與一般瀏覽的請求量，但不能保證讀取次數永遠不超過免費額度。Cloudflare 的帳單提醒是通知，不是自動停用服務的硬上限。
 
 ## 更新網站
 
-本分支已推送至 GitHub。確認 Cloudflare Workers 正常運作、D1/R2 綁定與主持人密碼已設定後，再把部署分支合併至 `main`，並設定原本 GitHub Pages 網址的轉址。不要在 Worker 就緒前刪除現有 GitHub 首頁。
+先將本機尚未提交的相簿限制修改上傳到 GitHub，再執行 `npm run build` 及 `npx wrangler deploy --config dist/server/wrangler.json`。確認 Cloudflare Workers 正常運作、D1/R2 綁定與主持人密碼已設定後，再把部署分支合併至 `main`，並設定原本 GitHub Pages 網址的轉址。不要在 Worker 就緒前刪除現有 GitHub 首頁。
 
-目前已完成本機編譯並上傳 GitHub；使用者的 Cloudflare 帳號已授權，D1 資料庫與表格已建立。R2 仍需由帳號持有人在 Cloudflare 控制台完成啟用，之後才能建立照片儲存空間與部署正式網站。
+目前 D1 資料庫、R2 bucket、主持人密碼及 `workers.dev` 網址都已建立。測試網址是 `https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/wedding_1212.html`。Cloudflare 回報部署成功，但建立網址後立即從此工作環境連線時 TLS 交握失敗，尚未完成瀏覽器實測。上述相簿限制修改目前只在本機，尚未提交或推送至 GitHub，也尚未重新部署。GitHub 的 `main` 仍是舊網站。
