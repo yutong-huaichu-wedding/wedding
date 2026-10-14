@@ -23,6 +23,6 @@ body.needs-checkin #checkin .desc{text-align:center}
 .checkin-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:20px}
 .checkin-actions .primary{min-height:48px;flex:1}
 .host-entry{border:0;background:none;color:#998580;text-decoration:underline;font-size:12px;cursor:pointer;margin-top:18px}
-.danmu{display:flex;align-items:center}
+.danmu{display:flex;align-items:center;animation-duration:30s}
 .danmu .avatar-mini{width:30px;height:30px;background:#fff;border:2px solid #fff}
 @media(max-width:560px){.avatar-choice-grid{grid-template-columns:repeat(4,1fr)}.avatar-choice{font-size:34px}.avatar-preview-row{margin-top:10px}.checkin-actions .primary{width:100%}#navProfile{order:3}}
