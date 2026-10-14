@@ -66,7 +66,17 @@ async function checkin(){
 }
 async function sendBlessing(){ if(!requireGuest())return; const text=$('blessing').value.trim(); if(!text)return toast('請先寫下祝福'); if(await act('blessing',{text})){ $('blessing').value=''; toast('祝福送出成功 ♡') } }
 function spawnDanmu(txt,name,target,kind,value){const d=document.createElement('div');d.className='danmu';d.style.top=(10+Math.random()*75)+'%';d.innerHTML=avatarHTML(kind,value);d.append(document.createTextNode(name+'：'+txt));target.append(d);setTimeout(()=>d.remove(),13500)}
-setInterval(()=>{ if(!data.blessings.length)return; lastDanmu=(lastDanmu+1)%data.blessings.length; const b=data.blessings[lastDanmu]; spawnDanmu(b.text,b.name,$('wallPreview'),b.avatarKind,b.avatarValue); if(projection==='wall')spawnDanmu(b.text,b.name,$('projWall'),b.avatarKind,b.avatarValue) },2300);
+function tickDanmu(){
+  const count=data.blessings.length;
+  if(count&&!document.hidden){
+    lastDanmu=(lastDanmu+1)%count;
+    const b=data.blessings[lastDanmu];
+    spawnDanmu(b.text,b.name,$('wallPreview'),b.avatarKind,b.avatarValue);
+    if(projection==='wall')spawnDanmu(b.text,b.name,$('projWall'),b.avatarKind,b.avatarValue);
+  }
+  setTimeout(tickDanmu,count===1?15000:count===2?8000:count===3?5000:4000);
+}
+setTimeout(tickDanmu,2000);
 async function uploadPhoto(){ if(!requireGuest())return; const file=$('photoFile').files[0]; if(!file)return toast('請先選照片'); if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>8*1024*1024)return toast('僅接受 8MB 以下的 JPG、PNG 或 WebP 圖片'); const image=new Image(); const url=URL.createObjectURL(file); image.onload=async()=>{ try{ const canvas=document.createElement('canvas'),scale=Math.min(1,1200/Math.max(image.width,image.height)); canvas.width=Math.max(1,Math.round(image.width*scale)); canvas.height=Math.max(1,Math.round(image.height*scale)); canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height); const blob=await fitJpeg(canvas,600*1024); const r=await fetch('/api/photo',{method:'POST',headers:{'content-type':'image/jpeg',...authHeaders()},credentials:'same-origin',body:blob}); const result=await r.json(); if(!r.ok)throw Error(result.error||'上傳失敗'); $('photoFile').value=''; await refresh(); toast('照片已分享至婚禮相簿'); }catch(e){toast(e.message||'照片上傳失敗')}finally{URL.revokeObjectURL(url)} }; image.onerror=()=>{URL.revokeObjectURL(url);toast('無法讀取這張照片')}; image.src=url }
 function setGame(v){ game=v; $('quizPane').classList.toggle('hidden',v!=='quiz'); $('lottoPane').classList.toggle('hidden',v!=='lotto'); $('quizTab').className=v==='quiz'?'primary':'outline'; $('lottoTab').className=v==='lotto'?'primary':'outline'; render() }
 function clearPick(){picks=[];renderNumbers()}
