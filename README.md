@@ -11,6 +11,8 @@
 
 GitHub Pages 無法單獨執行本專案的 API。根目錄的 `index.html` 會把原網址 `https://yutong-huaichu-wedding.github.io/wedding/` 轉到 Cloudflare Workers。婚禮 QR Code 指向 GitHub Pages 原網址，以便將來更換 Workers 網址時不用重印。
 
+對外分享的免費短入口為 `https://yutong-huaichu-wedding1212.pages.dev/`，其原始碼在 `short-url/index.html`。這是 Cloudflare Pages 的靜態轉址頁，訪客進站後瀏覽器會顯示較長的 Workers 網址；所有互動與資料仍由原本的 Worker、D1 與 R2 處理。已產生的 QR Code 仍指向 GitHub Pages 原網址，繼續可用。若日後更改 Worker 網址，需同步修改 `short-url/index.html` 與根目錄 `index.html`。
+
 ## 首次部署（Cloudflare 帳號持有人執行）
 
 1. 使用 Node.js 22.13 以上，執行 `npm ci`。
