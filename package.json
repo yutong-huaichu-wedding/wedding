@@ -6,6 +6,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
     "install:ci": "node scripts/install-ci.mjs",
     "dev": "vinext dev",
     "build": "vinext build",
