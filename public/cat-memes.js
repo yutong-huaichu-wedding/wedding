@@ -1,5 +1,5 @@
 import {ready,validateMedia,validateDeck,projectionState,packDeck,unpackDeck,moveCatQuestion} from './cat-meme-model.js';
-import {createCatMemeDeck,mergeCatMemeDeck,catMemeQuestions,upgradeCatMemeSounds} from './cat-meme-questions.js';
+import {createCatMemeDeck,mergeCatMemeDeck,catMemeQuestions,upgradeCatMemeSounds,applyFinalCatMemeDeck} from './cat-meme-questions.js';
 const $=id=>document.getElementById(id);
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const params=new URLSearchParams(location.search),screenMode=params.get('screen')==='1';
@@ -126,6 +126,8 @@ function database(){
   });return dbPromise;
 }
 async function loadDeck(){const db=await database();return new Promise((resolve,reject)=>{const r=db.transaction('state','readonly').objectStore('state').get('deck');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
+async function loadDeckRevision(){const db=await database();return new Promise((resolve,reject)=>{const r=db.transaction('state','readonly').objectStore('state').get('bundledRevision');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
+async function storeDeckRevision(){const db=await database();return new Promise((resolve,reject)=>{const tx=db.transaction('state','readwrite');tx.objectStore('state').put('2026-10-15-final-nine','bundledRevision');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('儲存被中止'))})}
 async function storeDeck(next,apply=true){validateDeck(next);const db=await database();await new Promise((resolve,reject)=>{const tx=db.transaction('state','readwrite');tx.objectStore('state').put(next,'deck');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('儲存被中止'))});if(apply)deck=next}
 function setBusy(value){busy=value;for(const id of ['saveMeme','exportDeck','addNew','loadStarter','memePrompt','memeName','memeAnswer','memeNote','memeImage','memeAnswerMedia','importDeck'])$(id).disabled=value;renderDeck();$('deleteMeme').disabled=value||!editingId}
 async function saveEditor(event){
@@ -191,7 +193,7 @@ if(screenMode){
     if(!target)notice('投影視窗未開啟，請允許這個網站開啟新視窗。');else notice('將新視窗移到現場螢幕，再按「啟用投影音效」。');
   };
   setInterval(()=>{if(!connected())$('screenStatus').textContent='投影尚未連接。可先在左側試玩。'},3000);
-  (async()=>{setBusy(true);try{const saved=await loadDeck();if(saved===undefined)await storeDeck(await starterDeck());else {deck=validateDeck(saved);const updated=await upgradeCatMemeSounds(deck,await starterDeck());if(updated!==deck){await storeDeck(updated);notice('內建題目已改用有聲影片，自訂素材與題目順序均已保留。')}}fillEditor(current());renderDeck();publish();}catch{deck=[];fillEditor();renderDeck();publish();$('storageStatus').textContent='無法讀取保存的題庫，請勿清除瀏覽器資料；可先重新整理，或匯入先前備份。';notice('題庫未能讀取，請重新整理或匯入備份。')}finally{setBusy(false)}})();
+  (async()=>{setBusy(true);try{const saved=await loadDeck(),revision=await loadDeckRevision(),incoming=await starterDeck();if(saved===undefined){await storeDeck(incoming);await storeDeckRevision()}else if(revision!=='2026-10-15-final-nine'){await storeDeck(applyFinalCatMemeDeck(validateDeck(saved),incoming));await storeDeckRevision();notice('已套用最新 9 題及指定照片、影片。')}else {deck=validateDeck(saved);const updated=await upgradeCatMemeSounds(deck,incoming);if(updated!==deck){await storeDeck(updated);notice('內建題目已改用有聲影片，自訂素材與題目順序均已保留。')}}fillEditor(current());renderDeck();publish();}catch{deck=[];fillEditor();renderDeck();publish();$('storageStatus').textContent='無法讀取保存的題庫，請勿清除瀏覽器資料；可先重新整理，或匯入先前備份。';notice('題庫未能讀取，請重新整理或匯入備份。')}finally{setBusy(false)}})();
 }
 window.addEventListener('beforeunload',event=>{if(!screenMode&&(dirty||busy||orderSaving)){event.preventDefault();event.returnValue=''}});
 window.addEventListener('pagehide',()=>{stopSound();channel?.close();if(editorVideoUrl)URL.revokeObjectURL(editorVideoUrl);for(const url of urls)URL.revokeObjectURL(url)});

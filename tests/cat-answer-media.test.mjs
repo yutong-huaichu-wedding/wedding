@@ -25,14 +25,14 @@ test('video and GIF backup round trip; older backups remain readable',async()=>{
 test('old bundled GIF and MP3 become one video, while custom media and answers remain',async()=>{
  const type=ext=>ext==='mp4'?'video/mp4':ext==='mp3'?'audio/mpeg':ext==='gif'?'image/gif':ext==='png'?'image/png':'image/jpeg';
  const load=async(id,ext)=>new Blob([await readFile(new URL('../public/cat-meme-assets/'+id+'.'+ext,import.meta.url))],{type:type(ext)});
- const incoming=await createCatMemeDeck(load);assert.equal(incoming.filter(q=>q.answerMedia?.type==='video/mp4').length,12);
+ const incoming=await createCatMemeDeck(load);assert.equal(incoming.filter(q=>q.answerMedia?.type==='video/mp4').length,9);
  const old=await Promise.all(incoming.map(async q=>{
-  if(q.soundPending)return q;
+  if(q.id==='cat-pack-questioning')return {...q,answerMedia:null};
   const id=q.id.slice('cat-pack-'.length);
   return {...q,answer:'自訂答案',sound:await load(id,'mp3'),answerMedia:await load(id==='oiia'?'oiia':id+'-answer','gif')};
  }));
  const upgraded=await upgradeCatMemeSounds(old,incoming);
- assert.equal(upgraded.filter(q=>q.answerMedia?.type==='video/mp4').length,12);
+ assert.equal(upgraded.filter(q=>q.answerMedia?.type==='video/mp4').length,9);
  assert.ok(upgraded.every(q=>!q.sound));assert.equal(upgraded[0].answer,'自訂答案');
  const customSound={...old[0],sound:blob('personal recording','audio/mpeg')};
  const customVideo={...old[1],answerMedia:blob('personal movie','video/mp4')};
