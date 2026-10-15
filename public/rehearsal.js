@@ -39,7 +39,7 @@ function renderRehearsal() {
 function rehearsalQuizHost() {
   const total = data.questions.length, index = rehearsal.quizIndex;
   return '<p>題目：' + Math.max(0, index + 1) + ' / ' + total + '　·　試玩得分：' + rehearsal.score + '</p>'
-    + (total ? '<p>先按「下一題」，再到右側點選答案。公布答案後才能繼續。</p>' : '<p>題庫目前沒有題目，請先在控制台新增。</p>')
+    + (total ? '<p>模擬一位已加入的參賽者；按「下一題」後到右側作答，答完自動公布答案。</p>' : '<p>題庫目前沒有題目，請先在控制台新增。</p>')
     + '<div class="rehearsal-actions"><button class="primary" type="button" onclick="rehearsalNextQuestion()" ' + (index + 1 >= total || rehearsal.quizOpen ? 'disabled' : '') + '>下一題／開放作答</button>'
     + '<button class="outline" type="button" onclick="rehearsalCloseQuestion()" ' + (index < 0 || !rehearsal.quizOpen ? 'disabled' : '') + '>停止作答／公布答案</button>'
     + '<button class="outline" type="button" onclick="rehearsalResetQuiz()">重新試玩</button></div>';
@@ -49,7 +49,7 @@ function rehearsalQuizGuest() {
   if (!q) return '<div class="rehearsal-phone"><p>等待主持人出題</p></div>';
   const answered = rehearsal.choice !== null;
   return '<div class="rehearsal-phone"><span class="pill">第 ' + (rehearsal.quizIndex + 1) + ' 題 · ' + (rehearsal.quizOpen ? '開放作答' : '答案公布') + '</span><h3>' + rehearsalEscape(q.text) + '</h3>'
-    + q.options.map((option, i) => '<button class="quizopt ' + (rehearsal.choice === i ? 'chosen' : '') + '" type="button" onclick="rehearsalAnswer(' + i + ')" ' + (!rehearsal.quizOpen || answered ? 'disabled' : '') + '>' + String.fromCharCode(65 + i) + '．' + rehearsalEscape(option) + '</button>').join('')
+    + '<div class="quiz-options">' + q.options.map((option, i) => '<button class="quizopt quiz-color-' + i + ' ' + (rehearsal.choice === i ? 'chosen' : '') + '" type="button" onclick="rehearsalAnswer(' + i + ')" ' + (!rehearsal.quizOpen || answered ? 'disabled' : '') + '>' + quizSymbols[i] + ' ' + String.fromCharCode(65 + i) + '．' + rehearsalEscape(option) + '</button>').join('') + '</div><p>' + (answered ? '1' : '0') + '／1 人已回答</p>'
     + (answered ? '<p>已送出答案</p>' : '')
     + (!rehearsal.quizOpen ? '<p class="status">正確答案：' + String.fromCharCode(65 + q.correct) + '．' + rehearsalEscape(q.options[q.correct]) + '</p>' : '')
     + '<p>目前累計得分：' + rehearsal.score + '</p></div>';
@@ -65,6 +65,7 @@ function rehearsalAnswer(choice) {
   if (!rehearsal || !rehearsal.quizOpen || rehearsal.choice !== null) return;
   rehearsal.choice = choice;
   if (data.questions[rehearsal.quizIndex]?.correct === choice) rehearsal.score += 10;
+  rehearsal.quizOpen = false;
   renderRehearsal();
 }
 function rehearsalCloseQuestion() { if (!rehearsal || rehearsal.quizIndex < 0) return; rehearsal.quizOpen = false; renderRehearsal(); }

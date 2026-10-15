@@ -26,6 +26,18 @@ export const lotteryDefault = { status: 'open', result: [] as number[], startedA
 export const quizDefault = { index: -1, open: false };
 export const avatarPresets = ['cat','rabbit','bear','panda','fox','chick','frog','penguin','dog','koala','hamster','tiger','lion','pig','monkey','owl','unicorn','butterfly','sunflower','cherry','heart','star','cake'];
 
+// Participation and each question's roster live in settings; no migration or data reset.
+const participantKey = (id: string) => 'quizParticipant:' + id;
+const closeCompletedQuiz = () => db().prepare(`
+  UPDATE settings SET value=json_set(value,'$.open',json('false'))
+  WHERE key='quiz' AND json_extract(value,'$.open')=1
+    AND json_array_length(value,'$.participants')>0
+    AND NOT EXISTS (
+      SELECT 1 FROM json_each(settings.value,'$.participants') p
+      WHERE NOT EXISTS (SELECT 1 FROM answers a WHERE a.guest_id=p.value
+        AND a.question_id=json_extract(settings.value,'$.questionId'))
+    )`);
+
 export async function state(request: Request) {
   const admin = await isAdmin(request);
   const me = await guest(request);
@@ -42,6 +54,11 @@ export async function state(request: Request) {
   const result = Array.isArray(lotto.result) ? lotto.result : [];
   const winners = lotto.status === 'drawn' ? parsedTickets.filter(t => t.numbers.join(',') === result.join(',')).map(t => t.name) : [];
   const current = questions[quiz.index];
+  const roster: string[] = Array.isArray(quiz.participants) ? quiz.participants : [];
+  const participantCount = await first("SELECT COUNT(*) AS count FROM settings s JOIN guests g ON s.key='quizParticipant:'||g.id");
+  const answeredCount = current ? await first('SELECT COUNT(*) AS count FROM answers WHERE question_id=? AND guest_id IN (SELECT value FROM json_each(?))', current.id, JSON.stringify(roster)) : null;
+  const joined = me ? !!await first('SELECT key FROM settings WHERE key=?', participantKey(me.id)) : false;
+  const { participants: _participants, ...publicQuiz } = quiz;
   const currentQuestion = current ? { id: current.id, text: current.text, options: JSON.parse(current.options), ...(admin || !quiz.open ? { correct: current.correct } : {}) } : null;
   const myAnswer = me && current ? await first('SELECT choice FROM answers WHERE guest_id=? AND question_id=?', me.id, current.id) : null;
   const myScore = me ? await first('SELECT COUNT(*) AS score FROM answers WHERE guest_id=? AND correct=1', me.id) : null;
@@ -51,7 +68,7 @@ export async function state(request: Request) {
     blessings: blessings.reverse(), photos: photos.reverse().map(p => ({ ...p, url: '/api/photo/' + p.id })),
     lottery: { ...lotto, winners, ticketCount: parsedTickets.length },
     myTicket: me ? parsedTickets.find(t => t.guestId === me.id) || null : null,
-    quiz: { ...quiz, question: currentQuestion, total: questions.length, myAnswer: myAnswer?.choice ?? null, myScore: Number(myScore?.score || 0) * 10 },
+    quiz: { ...publicQuiz, joined, eligible: !!me && roster.includes(me.id), participantCount: Number(participantCount?.count || 0), answeredCount: Number(answeredCount?.count || 0), totalParticipants: roster.length, question: currentQuestion, total: questions.length, myAnswer: myAnswer?.choice ?? null, myScore: Number(myScore?.score || 0) * 10 },
     ...(admin ? { guests, tickets: parsedTickets, questions: questions.map(q => ({ ...q, options: JSON.parse(q.options) })), scores } : {})
   });
 }
@@ -131,6 +148,24 @@ export async function action(request: Request) {
     if (!result.meta.changes) return bad('投注已截止，或該賓客已投注');
     return good({ ok: true });
   }
+  if (type === 'quizJoin' || type === 'quizLeave') {
+    if (!me) return bad('請先報到', 401);
+    if (!['preset','photo'].includes(me.avatarKind)) return bad('請先選擇頭像', 403);
+    if (type === 'quizJoin') {
+      await setSetting(participantKey(me.id), true);
+    } else {
+      await db().batch([
+        db().prepare('DELETE FROM settings WHERE key=?').bind(participantKey(me.id)),
+        // Retain submitted answers and their place in this question's denominator.
+        db().prepare(`UPDATE settings SET value=json_set(value,'$.participants',json(
+          (SELECT json_group_array(p.value) FROM json_each(settings.value,'$.participants') p WHERE p.value<>?)
+        )) WHERE key='quiz' AND json_type(value,'$.participants')='array'
+          AND NOT EXISTS (SELECT 1 FROM answers WHERE guest_id=? AND question_id=json_extract(settings.value,'$.questionId'))`).bind(me.id, me.id),
+        closeCompletedQuiz()
+      ]);
+    }
+    return good({ ok: true });
+  }
   if (type === 'answer') {
     if (!me) return bad('請先報到', 401);
     if (!['preset','photo'].includes(me.avatarKind)) return bad('請先選擇頭像', 403);
@@ -140,7 +175,17 @@ export async function action(request: Request) {
     const choice = Number(body.choice);
     if (!quiz.open || !q) return bad('目前未開放作答');
     if (!Number.isInteger(choice) || choice < 0 || choice > 3) return bad('答案無效');
-    const result = await run("INSERT INTO answers (id,question_id,guest_id,choice,correct,created_at) SELECT ?,?,?,?,?,? WHERE json_extract((SELECT value FROM settings WHERE key='quiz'),'$.open')=1 AND json_extract((SELECT value FROM settings WHERE key='quiz'),'$.index')=? ON CONFLICT(question_id,guest_id) DO NOTHING", crypto.randomUUID(), q.id, me.id, choice, choice === q.correct ? 1 : 0, now(), quiz.index);
+    if (body.round !== quiz.round || body.questionId !== q.id) return bad('題目已更新，請重新確認後作答');
+    if (!Array.isArray(quiz.participants) || !quiz.participants.includes(me.id)) return bad('請先按「我要參賽」，從下一題開始作答');
+    const [result] = await db().batch([
+      db().prepare(`INSERT INTO answers (id,question_id,guest_id,choice,correct,created_at)
+        SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM settings WHERE key='quiz'
+          AND json_extract(value,'$.open')=1 AND json_extract(value,'$.round')=?
+          AND json_extract(value,'$.questionId')=?
+          AND EXISTS (SELECT 1 FROM json_each(settings.value,'$.participants') WHERE value=?))
+        ON CONFLICT(question_id,guest_id) DO NOTHING`).bind(crypto.randomUUID(), q.id, me.id, choice, choice === q.correct ? 1 : 0, now(), quiz.round, q.id, me.id),
+      closeCompletedQuiz()
+    ]);
     if (!result.meta.changes) return bad('已作答，或作答已結束');
     return good({ ok: true });
   }
@@ -203,17 +248,23 @@ export async function action(request: Request) {
     const quiz = await setting('quiz', quizDefault);
     const count = await first('SELECT COUNT(*) AS count FROM questions');
     if (quiz.index + 1 >= Number(count?.count || 0)) return bad('已經是最後一題');
-    await setSetting('quiz', { index: quiz.index + 1, open: true });
+    if (quiz.open) return bad('請先截止目前這一題');
+    const questions = await all('SELECT id FROM questions ORDER BY position,id');
+    const result = await run(`INSERT INTO settings (key,value)
+      SELECT 'quiz',json_object('index',?,'open',json('true'),'round',?,'questionId',?,
+        'participants',json((SELECT json_group_array(g.id) FROM settings s JOIN guests g ON s.key='quizParticipant:'||g.id)))
+      WHERE COALESCE(json_extract((SELECT value FROM settings WHERE key='quiz'),'$.open'),0)=0
+        AND COALESCE(json_extract((SELECT value FROM settings WHERE key='quiz'),'$.index'),-1)=?
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value`, quiz.index+1, crypto.randomUUID(), questions[quiz.index+1].id, quiz.index);
+    if (!result.meta.changes) return bad('題目狀態已更新，請再確認');
     return good({ ok: true });
   }
   if (type === 'quizClose') {
-    const quiz = await setting('quiz', quizDefault);
-    await setSetting('quiz', { ...quiz, open: false });
+    await run("UPDATE settings SET value=json_set(value,'$.open',json('false')) WHERE key='quiz'");
     return good({ ok: true });
   }
   if (type === 'quizReset') {
-    await run('DELETE FROM answers');
-    await setSetting('quiz', quizDefault);
+    await db().batch([db().prepare('DELETE FROM answers'), db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('quiz', JSON.stringify(quizDefault))]);
     return good({ ok: true });
   }
   if (type === 'blessingDelete') { await run('DELETE FROM blessings WHERE id=?', clean(body.id, 80)); return good({ ok: true }); }
@@ -227,7 +278,7 @@ export async function action(request: Request) {
   if (type === 'resetAll') {
     const photos = await all('SELECT id FROM photos');
     const avatars = await all("SELECT avatar_value AS value FROM guests WHERE avatar_kind='photo'");
-    await db().batch(['DELETE FROM answers','DELETE FROM tickets','DELETE FROM blessings','DELETE FROM photos','DELETE FROM guests','DELETE FROM questions'].map(sql => db().prepare(sql)));
+    await db().batch(["DELETE FROM settings WHERE key LIKE 'quizParticipant:%'",'DELETE FROM answers','DELETE FROM tickets','DELETE FROM blessings','DELETE FROM photos','DELETE FROM guests','DELETE FROM questions'].map(sql => db().prepare(sql)));
     const keys = [...photos.map(photo => 'photos/' + photo.id), ...avatars.map(avatar => 'avatars/' + avatar.value)];
     for (let i = 0; i < keys.length; i += 500) await bucket().delete(keys.slice(i, i + 500));
     await run('DELETE FROM media');
