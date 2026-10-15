@@ -7,6 +7,7 @@ const session=params.get('session')||crypto.randomUUID();
 const channel=typeof BroadcastChannel!=='undefined'?new BroadcastChannel('wedding-cat-memes:'+session):null;
 let orderSaving=false,pendingOrder=null;
 let deck=[],index=0,revealed=false,editingId=null,dirty=false,busy=false,dbPromise=null,noticeTimer,lastScreenAt=0,lastHostAt=Date.now(),playSerial=0,lastPlayed=-1,lastStageKey='',liveState=null;
+let editorVideoUrl=null;
 const urls=new Set(),blobUrls=new WeakMap();
 const src=blob=>{if(!blobUrls.has(blob)){const url=URL.createObjectURL(blob);blobUrls.set(blob,url);urls.add(url)}return blobUrls.get(blob)};
 function notice(text){$('notice').textContent=text;$('notice').style.display='block';clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('notice').style.display='none',5000)}
@@ -58,7 +59,7 @@ function publish(autoplay=false){
   channel?.postMessage({type:'state',state,autoplay});
 }
 function renderDeck(){
-  $('deck').innerHTML=deck.length?deck.map((q,i)=>'<article class="deck-row '+(i===index?'active':'')+'">'+(q.image?'<img alt="" src="'+src(q.image)+'">':'<span class="deck-thumb">🐱</span>')+'<div class="deck-info"><strong>'+String(i+1).padStart(2,'0')+' · '+escape(q.name)+'</strong><small>'+(ready(q)?'✓ 照片與有聲影片都準備好了':'待補：'+[!q.image?'照片':'',!(q.answerMedia?.type.startsWith('video/')||(!q.answerMedia&&q.sound?.type.startsWith('video/')))?'有聲答案影片':''].filter(Boolean).join('、'))+'</small></div><div class="deck-actions"><div class="deck-move"><button type="button" data-move="'+escape(q.id)+'" data-direction="-1" aria-label="上移 '+escape(q.name)+'" '+(i===0||busy?'disabled':'')+'>↑ 上移</button><button type="button" data-move="'+escape(q.id)+'" data-direction="1" aria-label="下移 '+escape(q.name)+'" '+(i===deck.length-1||busy?'disabled':'')+'>↓ 下移</button></div><div><button type="button" data-edit="'+escape(q.id)+'">編輯</button><button type="button" data-show="'+i+'">出題</button></div></div></article>').join(''):'<p class="small">還沒有題目，從右邊新增第一隻貓吧。</p>';
+  $('deck').innerHTML=deck.length?deck.map((q,i)=>'<article class="deck-row '+(i===index?'active':'')+'">'+(q.image?'<img alt="" src="'+src(q.image)+'">':'<span class="deck-thumb">🐱</span>')+'<div class="deck-info"><strong>'+String(i+1).padStart(2,'0')+' · '+escape(q.name)+'</strong><small>'+(ready(q)?'✓ 照片與有聲影片都準備好了':'待補：'+[!q.image?'照片':'',!(q.answerMedia?.type.startsWith('video/')||(!q.answerMedia&&q.sound?.type.startsWith('video/')))?'有聲答案影片':''].filter(Boolean).join('、'))+'</small></div><div class="deck-actions"><div class="deck-move"><button type="button" data-move="'+escape(q.id)+'" data-direction="-1" aria-label="上移 '+escape(q.name)+'" '+(i===0||busy?'disabled':'')+'>↑ 上移</button><button type="button" data-move="'+escape(q.id)+'" data-direction="1" aria-label="下移 '+escape(q.name)+'" '+(i===deck.length-1||busy?'disabled':'')+'>↓ 下移</button></div><div><button type="button" data-edit="'+escape(q.id)+'">編輯／換影片</button><button type="button" data-show="'+i+'">出題</button></div></div></article>').join(''):'<p class="small">還沒有題目，從右邊新增第一隻貓吧。</p>';
   for(const id of ['saveMeme','exportDeck','addNew','loadStarter','importDeck'])$(id).disabled=busy||orderSaving;
   $('deleteMeme').disabled=busy||orderSaving||!editingId;
   const q=current();
@@ -76,8 +77,22 @@ function fillEditor(q=null){
   $('editorTitle').textContent=q?'編輯這隻貓':'新增一隻貓';
   $('memeName').value=q?.name||'';$('memePrompt').value=q?.prompt||'這隻貓，怎麼叫？';$('memeAnswer').value=q?.answer||'';$('memeNote').value=q?.note||'';
   $('imageHint').textContent=q?.image?'✓ 已有照片；不選新檔案即可保留。':'JPG、PNG、WebP、GIF，8MB 以下';
-  $('answerMediaHint').textContent=q?.answerMedia?.type.startsWith('video/')?'✓ 已有有聲答案影片；不選新檔案即可保留。':q?.answerMedia||q?.sound?'舊題目仍是分開的畫面與聲音，請換成一支有聲影片。':'請選 MP4 或 WebM 有聲影片，12MB 以下。';
+  $('answerMediaHint').textContent=q?.answerMedia?.type.startsWith('video/')?'✓ 已有影片；選新檔案即可替換。':q?.answerMedia||q?.sound?'舊題目仍是分開的畫面與聲音，請換成一支有聲影片。':'請選 MP4 或 WebM 有聲影片，50MB 以下。';
+  $('removeAnswerMedia').disabled=!(q?.answerMedia||q?.sound);
+  updateEditorVideo();
   $('deleteMeme').disabled=busy||orderSaving||!q;$('editStatus').textContent='儲存後保留在這台電腦；記得匯出題庫備份。';
+}
+function updateEditorVideo(){
+  const player=$('editorVideo');player.onloadedmetadata=null;player.onerror=null;player.pause();player.removeAttribute('src');player.load();
+  if(editorVideoUrl){URL.revokeObjectURL(editorVideoUrl);editorVideoUrl=null}
+  const file=$('memeAnswerMedia').files[0],q=deck.find(item=>item.id===editingId);
+  const media=$('removeAnswerMedia').checked?null:file||q?.answerMedia?.type.startsWith('video/')&&q.answerMedia||!q?.answerMedia&&q?.sound?.type.startsWith('video/')&&q.sound;
+  if(!media){player.hidden=true;$('editorVideoStatus').textContent=$('removeAnswerMedia').checked?'儲存後，這題會先沒有答案影片。':'這題尚未有可試看的影片。';return}
+  editorVideoUrl=URL.createObjectURL(media);player.src=editorVideoUrl;player.hidden=false;
+  const size=media.size<1024*1024?Math.round(media.size/1024)+' KB':(media.size/1024/1024).toFixed(1)+' MB';
+  $('editorVideoStatus').textContent=(file?'新選的影片':'目前的影片')+' · '+(media.name||'已儲存影片')+' · '+size;
+  player.onloadedmetadata=()=>{if(Number.isFinite(player.duration))$('editorVideoStatus').textContent+=' · '+Math.round(player.duration)+' 秒'};
+  player.onerror=()=>{$('editorVideoStatus').textContent='這支影片無法在此瀏覽器試播，請改用 MP4 影片。'};
 }
 async function moveMemeQuestion(id,direction){
   if(busy)return;
@@ -116,8 +131,8 @@ function setBusy(value){busy=value;for(const id of ['saveMeme','exportDeck','add
 async function saveEditor(event){
   event.preventDefault();if(busy||orderSaving)return;
   const old=deck.find(q=>q.id===editingId);
-  const answerFile=$('memeAnswerMedia').files[0];
-  const q={id:old?.id||crypto.randomUUID(),name:$('memeName').value.trim(),prompt:$('memePrompt').value.trim()||'這隻貓，怎麼叫？',answer:$('memeAnswer').value.trim(),note:$('memeNote').value.trim(),image:$('memeImage').files[0]||old?.image||null,sound:answerFile?null:old?.sound||null,answerMedia:answerFile||old?.answerMedia||null};
+  const answerFile=$('memeAnswerMedia').files[0],removeVideo=$('removeAnswerMedia').checked;
+  const q={id:old?.id||crypto.randomUUID(),name:$('memeName').value.trim(),prompt:$('memePrompt').value.trim()||'這隻貓，怎麼叫？',answer:$('memeAnswer').value.trim(),note:$('memeNote').value.trim(),image:$('memeImage').files[0]||old?.image||null,sound:answerFile||removeVideo?null:old?.sound||null,answerMedia:removeVideo?null:answerFile||old?.answerMedia||null};
   try{validateMedia(q.image,'image');if(answerFile&&!answerFile.type.startsWith('video/'))throw Error('請選擇一支自帶聲音的 MP4 或 WebM 影片。');validateDeck(old?deck.map(item=>item.id===old.id?q:item):[...deck,q]);}catch(e){return notice(e.message)}
   setBusy(true);$('editStatus').textContent='正在儲存照片與有聲影片…';
   try{await storeDeck(old?deck.map(item=>item.id===old.id?q:item):[...deck,q]);if(!old)index=deck.length-1;if(current()?.id===q.id)revealed=false;fillEditor(q);renderDeck();publish();notice(ready(q)?'這道題目已準備好！':'題目已儲存，稍後補上照片與有聲影片即可。')}
@@ -133,7 +148,7 @@ function decode(base64,type){const text=atob(base64);return new Blob([Uint8Array
 async function exportBackup(){if(busy||orderSaving)return;setBusy(true);try{const backup=await packDeck(deck,encode);const url=URL.createObjectURL(new Blob([JSON.stringify(backup)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='小貓迷因問答_含照片影片_'+new Date().toISOString().slice(0,10)+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);notice('題庫備份已下載，包含照片與影片。尚未儲存的欄位不包含在內。')}catch(e){notice('匯出失敗：'+e.message)}finally{setBusy(false)}}
 async function importBackup(event){
   const file=event.target.files[0];if(!file||busy||orderSaving)return;
-  try{if(file.size>60*1024*1024)throw Error('備份檔案太大，請確認選對檔案。');const next=unpackDeck(JSON.parse(await file.text()),decode);
+  try{if(file.size>420*1024*1024)throw Error('備份檔案太大，請確認選對檔案。');const next=unpackDeck(JSON.parse(await file.text()),decode);
     if(!confirm('匯入將取代這台電腦目前的小貓題庫，婚禮資料不受影響。若有舊題庫，請先匯出備份。確定匯入？'))return;
     setBusy(true);const incoming=await starterDeck(),upgraded=await upgradeCatMemeSounds(next,incoming);await storeDeck(upgraded);index=0;revealed=false;fillEditor(current());renderDeck();publish();notice('題庫、照片與影片已匯入。舊自訂動圖與音檔仍保留，請另換有聲影片。');
   }catch(e){notice('匯入未完成：'+e.message)}finally{event.target.value='';setBusy(false)}
@@ -161,6 +176,8 @@ if(screenMode){
 }else{
   $('loadStarter').textContent='加入 '+catMemeQuestions.length+' 題迷因題庫';$('loadStarter').onclick=addStarterDeck;
   $('editor').addEventListener('input',()=>{dirty=true});$('editor').addEventListener('change',()=>{dirty=true});$('editor').addEventListener('submit',saveEditor);
+  $('memeAnswerMedia').addEventListener('change',()=>{$('removeAnswerMedia').checked=false;updateEditorVideo()});
+  $('removeAnswerMedia').addEventListener('change',()=>{if($('removeAnswerMedia').checked)$('memeAnswerMedia').value='';updateEditorVideo()});
   $('deleteMeme').onclick=deleteQuestion;$('exportDeck').onclick=exportBackup;$('importDeck').onchange=importBackup;
   $('addNew').onclick=()=>{if(!busy&&!orderSaving&&canLeaveEditor()){fillEditor();$('memeName').focus();$('editor').scrollIntoView({behavior:'smooth',block:'center'})}};
   $('deck').onclick=event=>{if(busy)return;const move=event.target.closest('[data-move]'),edit=event.target.closest('[data-edit]'),show=event.target.closest('[data-show]');if(move){void moveMemeQuestion(move.dataset.move,Number(move.dataset.direction));return}if(edit&&canLeaveEditor())fillEditor(deck.find(q=>q.id===edit.dataset.edit));else if(show)selectQuestion(Number(show.dataset.show))};
@@ -177,4 +194,4 @@ if(screenMode){
   (async()=>{setBusy(true);try{const saved=await loadDeck();if(saved===undefined)await storeDeck(await starterDeck());else {deck=validateDeck(saved);const updated=await upgradeCatMemeSounds(deck,await starterDeck());if(updated!==deck){await storeDeck(updated);notice('內建題目已改用有聲影片，自訂素材與題目順序均已保留。')}}fillEditor(current());renderDeck();publish();}catch{deck=[];fillEditor();renderDeck();publish();$('storageStatus').textContent='無法讀取保存的題庫，請勿清除瀏覽器資料；可先重新整理，或匯入先前備份。';notice('題庫未能讀取，請重新整理或匯入備份。')}finally{setBusy(false)}})();
 }
 window.addEventListener('beforeunload',event=>{if(!screenMode&&(dirty||busy||orderSaving)){event.preventDefault();event.returnValue=''}});
-window.addEventListener('pagehide',()=>{stopSound();channel?.close();for(const url of urls)URL.revokeObjectURL(url)});
+window.addEventListener('pagehide',()=>{stopSound();channel?.close();if(editorVideoUrl)URL.revokeObjectURL(editorVideoUrl);for(const url of urls)URL.revokeObjectURL(url)});
