@@ -22,13 +22,22 @@ test('video and GIF backup round trip; older backups remain readable',async()=>{
   delete backup.questions[0].answerMedia;assert.equal(unpackDeck(backup,decode)[0].answerMedia,null);
  }
 });
-test('starter visuals fill old built-in questions without replacing custom recordings or custom videos',async()=>{
- const load=async(id,ext)=>blob(id,ext==='mp3'?'audio/mpeg':ext==='gif'?'image/gif':'image/png');
- const incoming=await createCatMemeDeck(load);assert.equal(incoming.filter(q=>q.answerMedia).length,12);
- const original=incoming[0],saved={...original,answer:'自訂答案',answerMedia:null};
- const upgraded=await upgradeCatMemeSounds([saved],incoming);assert.equal(upgraded[0].answerMedia,original.answerMedia);assert.equal(upgraded[0].answer,'自訂答案');
- const custom={...saved,sound:blob('personal recording','audio/mpeg')},deck=[custom];assert.equal(await upgradeCatMemeSounds(deck,incoming),deck);
- const video={...saved,answerMedia:blob('personal movie','video/mp4')};assert.equal((await upgradeCatMemeSounds([video],incoming))[0],video);
+test('old bundled GIF and MP3 become one video, while custom media and answers remain',async()=>{
+ const type=ext=>ext==='mp4'?'video/mp4':ext==='mp3'?'audio/mpeg':ext==='gif'?'image/gif':ext==='png'?'image/png':'image/jpeg';
+ const load=async(id,ext)=>new Blob([await readFile(new URL('../public/cat-meme-assets/'+id+'.'+ext,import.meta.url))],{type:type(ext)});
+ const incoming=await createCatMemeDeck(load);assert.equal(incoming.filter(q=>q.answerMedia?.type==='video/mp4').length,12);
+ const old=await Promise.all(incoming.map(async q=>{
+  if(q.soundPending)return q;
+  const id=q.id.slice('cat-pack-'.length);
+  return {...q,answer:'自訂答案',sound:await load(id,'mp3'),answerMedia:await load(id==='oiia'?'oiia':id+'-answer','gif')};
+ }));
+ const upgraded=await upgradeCatMemeSounds(old,incoming);
+ assert.equal(upgraded.filter(q=>q.answerMedia?.type==='video/mp4').length,12);
+ assert.ok(upgraded.every(q=>!q.sound));assert.equal(upgraded[0].answer,'自訂答案');
+ const customSound={...old[0],sound:blob('personal recording','audio/mpeg')};
+ const customVideo={...old[1],answerMedia:blob('personal movie','video/mp4')};
+ const result=await upgradeCatMemeSounds([customSound,customVideo],incoming);
+ assert.equal(result[0],customSound);assert.equal(result[1],customVideo);
 });
 const app=await readFile(new URL('../public/cat-memes.js',import.meta.url),'utf8');
 function stage(){
@@ -45,8 +54,7 @@ test('reveal renders video in main picture, plays only its soundtrack, then hide
  ctx.renderStage(answer);const video=picture.child;await ctx.playSound(answer);assert.equal(video.plays,1);assert.equal(nodes.soundPlayer.plays,0);assert.equal(video.src,'blob:movie');
  ctx.renderStage(state);assert.ok(video.pauses>0);assert.equal(picture.child.kind,'img');assert.equal(picture.child.src,'blob:photo');
 });
-test('GIF reveal pairs existing audio; autoplay rejection leaves manual replay available',async()=>{
+test('legacy GIF and MP3 never play as separate streams',async()=>{
  const {ctx,nodes,picture}=stage();const answer={key:'a',index:0,total:1,prompt:'問',image:'blob:photo',revealed:true,answerMedia:'blob:gif',answerMediaType:'image/gif',sound:'blob:audio'};
- ctx.renderStage(answer);await ctx.playSound(answer);assert.equal(picture.child.src,'blob:gif');assert.equal(nodes.soundPlayer.src,'blob:audio');assert.equal(nodes.soundPlayer.plays,1);assert.equal(nodes.replay.disabled,false);
- nodes.soundPlayer.play=async()=>{throw Error('autoplay blocked')};await ctx.playSound(answer);assert.match(nodes.playbackStatus.textContent,/再播一次/);
+ ctx.renderStage(answer);await ctx.playSound(answer);assert.equal(picture.child.src,'blob:gif');assert.equal(nodes.soundPlayer.plays,0);assert.equal(nodes.replay.disabled,true);
 });

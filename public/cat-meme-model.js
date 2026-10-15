@@ -25,7 +25,7 @@ export function validateDeck(deck){
   if(bytes>DECK_LIMIT)throw Error('整份題庫的照片、動圖、影片與音效合計需小於 40MB，請縮短影片或音效。');
   return deck;
 }
-export function ready(q){return !!q?.image&&(!!q?.sound||!!q?.answerMedia?.type.startsWith('video/'))}
+export function ready(q){return !!q?.image&&(!!q?.answerMedia?.type.startsWith('video/')||(!q?.answerMedia&&!!q?.sound?.type.startsWith('video/')))}
 export function projectionState(q,index,total,revealed,src){
   return {index,total,revealed,prompt:q?.prompt||'這隻貓，怎麼叫？',ready:ready(q),image:q?.image?src(q.image):'',...(revealed&&q?{answer:q.answer,name:q.name,note:q.note,sound:q.sound?src(q.sound):'',soundType:q.sound?.type||'',answerMedia:q.answerMedia?src(q.answerMedia):'',answerMediaType:q.answerMedia?.type||''}:{})};
 }
