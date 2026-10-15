@@ -1,0 +1,83 @@
+[
+  {
+    "id": "huh",
+    "sourceStart": 1.0,
+    "sourceEnd": 2.2,
+    "tailPause": 0.16,
+    "description": "完整第一聲，前後保留停頓"
+  },
+  {
+    "id": "happy",
+    "sourceStart": 0,
+    "sourceEnd": 2.5,
+    "tailPause": 0.16,
+    "description": "Happy 短樂句"
+  },
+  {
+    "id": "banana",
+    "sourceStart": 0,
+    "sourceEnd": 3.22,
+    "tailPause": 0.16,
+    "description": "第一段哭聲，停頓處結束"
+  },
+  {
+    "id": "chipi",
+    "sourceStart": 0,
+    "sourceEnd": 6.5,
+    "tailPause": 0.16,
+    "description": "一輪完整副歌節奏，不接第二輪"
+  },
+  {
+    "id": "oiia",
+    "sourceStart": 0.2,
+    "sourceEnd": 2.23,
+    "tailPause": 0.16,
+    "description": "第一段旋轉叫聲，保留尾端停頓"
+  },
+  {
+    "id": "no-no",
+    "sourceStart": 0,
+    "sourceEnd": 4.22,
+    "tailPause": 0.16,
+    "description": "第一段拒絕叫聲，停頓處結束"
+  },
+  {
+    "id": "nyan",
+    "sourceStart": 0,
+    "sourceEnd": 6.76,
+    "tailPause": 0.16,
+    "description": "一輪重複主旋律"
+  },
+  {
+    "id": "vibing",
+    "sourceStart": 0,
+    "sourceEnd": 8.28,
+    "tailPause": 0.16,
+    "description": "兩段四拍樂句，低音量處收尾"
+  },
+  {
+    "id": "maxwell",
+    "sourceStart": 0,
+    "sourceEnd": 7.24,
+    "tailPause": 0.16,
+    "description": "一輪主旋律"
+  },
+  {
+    "id": "german",
+    "sourceStart": 0,
+    "sourceEnd": 5.094,
+    "tailPause": 0.16,
+    "description": "保留來源整段短配音，避免句中截斷"
+  },
+  {
+    "id": "aggrieved",
+    "sourceStart": 2.65,
+    "sourceEnd": 3.95,
+    "tailPause": 0.16,
+    "description": "單聲委屈叫聲，保留前後停頓"
+  },
+  {
+    "id": "pop",
+    "description": "完整啵聲三次，中間保留停頓"
+  }
+]

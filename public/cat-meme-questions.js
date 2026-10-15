@@ -22,3 +22,20 @@ export function mergeCatMemeDeck(existing,incoming){
  for(const q of incoming){const at=merged.findIndex(item=>item.id===q.id||item.name===q.name);if(at<0)merged.push(q);else merged[at]={...merged[at],prompt:merged[at].prompt||q.prompt,image:merged[at].image||q.image,sound:merged[at].sound||q.sound};}
  return merged;
 }
+
+// Replace only byte-identical old bundled clips; custom recordings remain untouched.
+const shortSoundHashes={"german": ["369a35c6483d11418d778623ed2deb57a47a0554ce5bfe48b02b49b66671813a", "a393f6ee56d3a43f46d814290921ff6dd1cc1bfbbfdf8bde1f7555202f229579"], "huh": ["870a81ca5d4723e9308d0337054b6f67932e0377643befdf84831c46ac17a9ec", "41a145b6097deaea2c1be24973f111443bab931bda49f138df1105a1d8f7439d", "44cf9ced3d2670fa59c1afc26ea4172ec40219056eeec10cb2203537ebf859cb"], "oiia": ["92c96569d5218976495c24766bbe54f6542cc4f765ea208abb9577ed4613945e", "08b677de31611705543d646e1495014353b3e52bc78ec53e72072624a57614a7"], "happy": ["97c1a3ffd1f593b1677d665607321f4b1f1cea42ebbd842f3ad9e098c207f54a", "f8b8aa163944415f0f774c8c26fcfb8515938d87371b346568e38845d473c992"], "chipi": ["d4edb302bc3a51ded65a958e1d5c181ee99d564c5e7c881500a36980f1d6df57", "c53b25ca3acc07ed34eb2d0ca74ed4afcaf7921ad9e1409e33c8f9e84f6bbcab"], "no-no": ["31e35c288ca2457b3f0fa188282b9892435d259f61c8ce6dc8644f8790e59343", "21c647463f72f5d0d971475f3acdd6b25e9f986dbcb7927449d0a4ef26824537"], "vibing": ["81d1e104b265635df97bccf40646e791ce55c039fd781d972ef05078920c5672", "2053e6ac8d7913d27d9adae65335978386c393f8970b5a8b910ae4eb6dbeb2db"], "nyan": ["8a7535c0022e3e284e6f7e9c3e418eefbc5d9d55e25e2c14afc1bced1ef60b4e", "06c2cd02d48824d3e1d1620ec7095dd88fa377eaf083b6af0bbac20479f968cb"], "maxwell": ["1776b5b0d388e909eec746cb4d945d5e2b1a3a82fd1f39f55938d629d10f05d5", "893fa937c1173c20d8c4bf5c27ee1b9a632bc75369e1b0a52cb4d7d54253b5bb"], "aggrieved": ["bd26cc2d9673e881d025390bc1397d5687a9cda45496575d750eed5fc57ef8a1", "4842ac6cb6bb1d1c4ba836a764aed2d4c11cd9d6d990db257d9fa5f860e050ce"], "pop": ["7e3c6add327218fa289d05d62613dc0c5c8af7693b261daef634e00adf155048"], "banana": ["0d2f760c333a15b370e7dd47189d51616453eba802ea06283f73db839259e8d3", "263c77cc200bb8ea82d26c5602627a145f5f55ee6fe8a0b92d5875faa0ec9ff5"]};
+export async function upgradeCatMemeSounds(existing,incoming){
+ const byId=new Map(incoming.map(q=>[q.id,q]));let changed=false;
+ const result=await Promise.all(existing.map(async q=>{
+  const fresh=byId.get(q.id),key=q.id.replace(/^cat-pack-/, '');
+  if(!fresh?.sound||!q.sound||!shortSoundHashes[key])return q;
+  const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await q.sound.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');
+  const oldHashes=Array.isArray(shortSoundHashes[key])?shortSoundHashes[key]:[shortSoundHashes[key]];
+  if(!oldHashes.includes(hash))return q;
+  const newHash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await fresh.sound.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');
+  if(hash===newHash)return q;
+  changed=true;return {...q,sound:fresh.sound};
+ }));
+ return changed?result:existing;
+}

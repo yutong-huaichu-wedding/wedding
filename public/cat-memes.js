@@ -1,5 +1,5 @@
 import {ready,validateMedia,validateDeck,projectionState,packDeck,unpackDeck,moveCatQuestion} from './cat-meme-model.js';
-import {createCatMemeDeck,mergeCatMemeDeck,catMemeQuestions} from './cat-meme-questions.js';
+import {createCatMemeDeck,mergeCatMemeDeck,catMemeQuestions,upgradeCatMemeSounds} from './cat-meme-questions.js';
 const $=id=>document.getElementById(id);
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const params=new URLSearchParams(location.search),screenMode=params.get('screen')==='1';
@@ -161,7 +161,7 @@ if(screenMode){
     if(!target)notice('投影視窗未開啟，請允許這個網站開啟新視窗。');else notice('將新視窗移到現場螢幕，再按「啟用投影音效」。');
   };
   setInterval(()=>{if(!connected())$('screenStatus').textContent='投影尚未連接。可先在左側試玩。'},3000);
-  (async()=>{setBusy(true);try{const saved=await loadDeck();if(saved===undefined)await storeDeck(await starterDeck());else deck=validateDeck(saved);fillEditor(current());renderDeck();publish();}catch{deck=[];fillEditor();renderDeck();publish();$('storageStatus').textContent='無法讀取保存的題庫，請勿清除瀏覽器資料；可先重新整理，或匯入先前備份。';notice('題庫未能讀取，請重新整理或匯入備份。')}finally{setBusy(false)}})();
+  (async()=>{setBusy(true);try{const saved=await loadDeck();if(saved===undefined)await storeDeck(await starterDeck());else {deck=validateDeck(saved);const updated=await upgradeCatMemeSounds(deck,await starterDeck());if(updated!==deck){await storeDeck(updated);notice('已換成較完整的內建音檔，自訂素材與題目順序均已保留。')}}fillEditor(current());renderDeck();publish();}catch{deck=[];fillEditor();renderDeck();publish();$('storageStatus').textContent='無法讀取保存的題庫，請勿清除瀏覽器資料；可先重新整理，或匯入先前備份。';notice('題庫未能讀取，請重新整理或匯入備份。')}finally{setBusy(false)}})();
 }
 window.addEventListener('beforeunload',event=>{if(!screenMode&&(dirty||busy||orderSaving)){event.preventDefault();event.returnValue=''}});
 window.addEventListener('pagehide',()=>{stopSound();channel?.close();for(const url of urls)URL.revokeObjectURL(url)});
