@@ -8,7 +8,7 @@ const [html,css,model,questions,app]=await Promise.all(files.map(read));
 const {catMemeQuestions,createCatMemeDeck}=await import('../public/cat-meme-questions.js');
 const {packDeck}=await import('../public/cat-meme-model.js');
 const assets={};
-const mime=ext=>ext==='mp3'?'audio/mpeg':ext==='png'?'image/png':ext==='gif'?'image/gif':'image/jpeg';
+const mime=ext=>ext==='mp4'?'video/mp4':ext==='mp3'?'audio/mpeg':ext==='png'?'image/png':ext==='gif'?'image/gif':'image/jpeg';
 const deck=await createCatMemeDeck(async(id,ext)=>{const data=await readFile(resolve(root,'public/cat-meme-assets',id+'.'+ext));assets[id+'.'+ext]='data:'+mime(ext)+';base64,'+data.toString('base64');return new Blob([data],{type:mime(ext)})});
 let code=app.replace(/^import[^\n]*\n/gm,'');
 const start=code.indexOf('async function starterDeck(){'),end=code.indexOf('async function addStarterDeck()',start);
