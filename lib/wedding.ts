@@ -51,7 +51,7 @@ export async function state(request: Request) {
   const me = await guest(request);
   const [blessings, photos, questions, tickets, guests, lotto, quiz, mahjong, kahoot, projection] = await Promise.all([
     all('SELECT b.id,b.name,b.text,b.created_at AS time,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue FROM blessings b LEFT JOIN guests g ON g.id=b.guest_id ORDER BY b.created_at DESC LIMIT 150'),
-    all('SELECT id,name,created_at AS time FROM photos ORDER BY created_at DESC LIMIT 150'),
+    all('SELECT id,name,guest_id AS guestId,created_at AS time FROM photos ORDER BY created_at DESC LIMIT 150'),
     all('SELECT id,text,options,correct,position FROM questions ORDER BY position,id'),
     all('SELECT t.id,t.guest_id AS guestId,t.name,t.numbers,t.created_at AS time,b.text AS blessing FROM tickets t LEFT JOIN blessings b ON b.id=t.id ORDER BY t.created_at'),
     admin ? all('SELECT id,name,avatar_kind AS avatarKind,avatar_value AS avatarValue,created_at AS time FROM guests ORDER BY created_at') : Promise.resolve([]),
@@ -77,7 +77,7 @@ export async function state(request: Request) {
   return good({
     mahjong, kahoot, projection,
     admin, me: me ? { id: me.id, name: me.name, avatarKind: me.avatarKind, avatarValue: me.avatarValue } : null,
-    blessings: blessings.reverse(), photos: photos.reverse().map(p => ({ ...p, url: '/api/photo/' + p.id })),
+    blessings: blessings.reverse(), photos: photos.reverse().map(p => { const { guestId, ...photo } = p; return { ...photo, canDelete: admin || !!me && guestId === me.id, url: '/api/photo/' + p.id }; }),
     lottery: { ...lotto, winners, ticketCount: parsedTickets.length },
     myTicket: me ? parsedTickets.find(t => t.guestId === me.id) || null : null,
     quiz: { ...publicQuiz, joined, eligible: !!me && roster.includes(me.id), participantCount: Number(participantCount?.count || 0), answeredCount: Number(answeredCount?.count || 0), totalParticipants: roster.length, question: currentQuestion, total: questions.length, myAnswer: myAnswer?.choice ?? null, myScore: Number(myScore?.score || 0) * 10 },
@@ -134,8 +134,7 @@ export async function action(request: Request) {
     await db().batch([
       db().prepare('UPDATE guests SET name=? WHERE id=?').bind(name, me.id),
       db().prepare('UPDATE blessings SET name=? WHERE guest_id=?').bind(name, me.id),
-      db().prepare('UPDATE photos SET name=? WHERE guest_id=?').bind(name, me.id),
-      db().prepare('UPDATE tickets SET name=? WHERE guest_id=?').bind(name, me.id)
+      db().prepare('UPDATE photos SET name=? WHERE guest_id=?').bind(name, me.id)
     ]);
     return good({ ok: true });
   }
@@ -169,13 +168,16 @@ export async function action(request: Request) {
     if (blessing.length > 100) return bad('祝福請在 100 字以內');
     const target = type === 'ticket' ? me : await first('SELECT id,name FROM guests WHERE id=?', clean(body.guestId, 80));
     if (!target) return bad('找不到報到賓客');
+    const realName = typeof body.realName === 'string' ? body.realName.normalize('NFKC').trim().replace(/\s+/gu, ' ') : '';
+    if (realName.length < 2 || realName.length > 25) return bad('請填寫 2–25 字的兌獎本名，勿填暱稱');
+    const nameKey = realName.replace(/\s+/gu, '').toLowerCase();
     const sorted = [...numbers].sort((a,b) => a-b);
     const id = crypto.randomUUID(), time = now();
-    const ticket = db().prepare("INSERT INTO tickets (id,guest_id,name,numbers,created_at) SELECT ?,?,?,?,? WHERE COALESCE(json_extract((SELECT value FROM settings WHERE key='lottery'),'$.status'),'open')='open' ON CONFLICT(guest_id) DO NOTHING").bind(id, target.id, target.name, JSON.stringify(sorted), time);
+    const ticket = db().prepare("INSERT INTO tickets (id,guest_id,name,numbers,created_at) SELECT ?,?,?,?,? WHERE COALESCE(json_extract((SELECT value FROM settings WHERE key='lottery'),'$.status'),'open')='open' AND NOT EXISTS (SELECT 1 FROM tickets WHERE lower(replace(replace(name,' ',''),'　',''))=?) ON CONFLICT(guest_id) DO NOTHING").bind(id, target.id, realName, JSON.stringify(sorted), time, nameKey);
     // One transaction: only this newly created ticket can add its blessing.
     // A duplicate ticket or closed round cannot leave an orphan message.
     const [result] = await db().batch([ticket, ...(blessing ? [db().prepare('INSERT INTO blessings (id,guest_id,name,text,created_at) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM tickets WHERE id=?)').bind(id, target.id, target.name, blessing, time, id)] : [])]);
-    if (!result.meta.changes) return bad('投注已截止，或該賓客已投注');
+    if (!result.meta.changes) return bad('投注已截止，或此身分／本名已投注；每人限一注。同名賓客請找主持人核對。');
     return good({ ok: true });
   }
   if (type === 'quizJoin' || type === 'quizLeave') {
@@ -219,6 +221,20 @@ export async function action(request: Request) {
     if (!result.meta.changes) return bad('已作答，或作答已結束');
     return good({ ok: true });
   }
+  if (type === 'photoDelete') {
+    const id = clean(body.id, 80);
+    const photo = await first('SELECT id,guest_id AS guestId FROM photos WHERE id=?', id);
+    if (!admin && (!me || !photo || photo.guestId !== me.id)) return bad('只能刪除自己上傳的照片', 403);
+    if (!photo) return good({ ok: true });
+    // Check the stored uploader, never a submitted name or uploader ID.
+    // Keep the album row if storage fails so the deletion can be retried.
+    await bucket().delete('photos/' + id);
+    await db().batch([
+      db().prepare('DELETE FROM photos WHERE id=?').bind(id),
+      db().prepare('DELETE FROM media WHERE id=?').bind(id)
+    ]);
+    return good({ ok: true });
+  }
   if (!admin) return bad('請先登入主持人控制台', 403);
   if (type === 'kahootUpdate') {
     const url = validKahootUrl(body.url), pin = typeof body.pin === 'string' ? body.pin.trim() : '';
@@ -239,6 +255,14 @@ export async function action(request: Request) {
       db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('projection', JSON.stringify({ mode: 'mahjong', session: '' }))
     ]);
     return good({ ok: true });
+  }
+  if (type === 'ticketName') {
+    const id = clean(body.id, 80);
+    const realName = typeof body.realName === 'string' ? body.realName.normalize('NFKC').trim().replace(/\s+/gu, ' ') : '';
+    if (realName.length < 2 || realName.length > 25) return bad('請填寫 2–25 字的兌獎本名');
+    const key = realName.replace(/\s+/gu, '').toLowerCase();
+    const result = await run("UPDATE tickets SET name=? WHERE id=? AND NOT EXISTS (SELECT 1 FROM tickets t WHERE t.id<>? AND lower(replace(replace(t.name,' ',''),'　',''))=?)", realName, id, id, key);
+    return result.meta.changes ? good({ ok: true }) : bad('找不到彩券，或此本名已投注；請核對名單');
   }
   if (type === 'lottoState') {
     const status = body.status;
@@ -319,13 +343,6 @@ export async function action(request: Request) {
     return good({ ok: true });
   }
   if (type === 'blessingDelete') { await run('DELETE FROM blessings WHERE id=?', clean(body.id, 80)); return good({ ok: true }); }
-  if (type === 'photoDelete') {
-    const id = clean(body.id, 80);
-    await run('DELETE FROM photos WHERE id=?', id);
-    await bucket().delete('photos/' + id);
-    await run('DELETE FROM media WHERE id=?', id);
-    return good({ ok: true });
-  }
   if (type === 'resetAll') {
     const photos = await all('SELECT id FROM photos');
     const avatars = await all("SELECT avatar_value AS value FROM guests WHERE avatar_kind='photo'");

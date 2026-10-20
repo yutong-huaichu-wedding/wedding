@@ -19,7 +19,12 @@ test('proxy selection is independent, capped at six and clears on guest change',
 });
 test('album deletion is visible to host only and escapes uploader name',()=>{
  const {run}=setup();run(`data.photos=[{id:'p1',name:'<賓客>',url:'/api/photo/p1'}]`);
- assert.doesNotMatch(run('photoCards(false)'),/刪除照片|removePhoto/);const html=run('photoCards(true)');assert.match(html,/刪除照片/);assert.match(html,/&lt;賓客&gt;/);assert.match(html,/removePhoto\('p1'\)/);assert.match(html,/target="_blank"/);
+ assert.doesNotMatch(run('photoCards(false)'),/刪除照片|removePhoto/);run('data.admin=true');const html=run('photoCards(true)');assert.match(html,/刪除照片/);assert.match(html,/&lt;賓客&gt;/);assert.match(html,/removePhoto\('p1'\)/);assert.match(html,/target="_blank"/);
+});
+test('guest sees delete for own photo only; selecting someone else photo cannot submit a delete',async()=>{
+ const {run}=setup();run("data.me={id:'a',name:'賓客',avatarKind:'preset',avatarValue:'cat'};data.photos=[{id:'own',name:'同名賓客',url:'/api/photo/own',canDelete:true},{id:'other',name:'同名賓客',url:'/api/photo/other',canDelete:false}];globalThis.calls=[];act=async(type,fields)=>{calls.push({type,...fields});return {ok:true}}");
+ const html=run('photoCards()');assert.match(html,/刪除我的照片/);assert.match(html,/removePhoto\('own'\)/);assert.doesNotMatch(html,/removePhoto\('other'\)/);
+ await run("removePhoto('other')");assert.equal(run('calls.length'),0);await run("removePhoto('own')");assert.equal(run('calls.length'),1);assert.equal(run('calls[0].id'),'own');
 });
 test('mahjong projection renders three distinct manual views and restores when changing projection modes',()=>{
  const {run,element}=setup();
@@ -61,9 +66,9 @@ test('saving Kahoot sends configuration once, disables edits and retains failed 
 test('lottery sends one ticket with blessing, keeps failed drafts, and clears only on success',async()=>{
  const {run,element}=setup();
  run("data.me={id:'a',name:'賓客',avatarKind:'preset',avatarValue:'cat'};picks=[1,2,3,4,5,6];globalThis.sent=[];globalThis.finish=null;act=(type,fields)=>{sent.push({type,...fields});return new Promise(resolve=>finish=resolve)}");
- element('ticketBlessing').value='  祝幸福久久  ';
+ element('ticketBlessing').value='  祝幸福久久  ';element('ticketRealName').value='王小明';
  run('globalThis.sending=submitTicket()');assert.equal(element('ticketSubmit').disabled,true);assert.equal(element('ticketBlessing').disabled,true);
- await run('submitTicket()');assert.equal(run('sent.length'),1);assert.equal(run('sent[0].blessing'),'祝幸福久久');
+ await run('submitTicket()');assert.equal(run('sent.length'),1);assert.equal(run('sent[0].blessing'),'祝幸福久久');assert.equal(run('sent[0].realName'),'王小明');
  run('finish(null)');await run('sending');assert.equal(element('ticketBlessing').value,'  祝幸福久久  ');assert.equal(run('picks.length'),6);assert.equal(element('ticketSubmit').disabled,false);
  run('globalThis.sending=submitTicket();finish({ok:true})');await run('sending');assert.equal(element('ticketBlessing').value,'');assert.equal(run('picks.length'),0);
 });

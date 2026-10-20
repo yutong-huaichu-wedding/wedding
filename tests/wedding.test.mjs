@@ -11,7 +11,7 @@ let sqlite,deleted;
 function prepare(sql){let args=[];return {bind(...values){args=values;return this},async first(){return sqlite.prepare(sql).get(...args)||null},async all(){return {results:sqlite.prepare(sql).all(...args)}},runSync(){const r=sqlite.prepare(sql).run(...args);return {meta:{changes:Number(r.changes)}}},async run(){return this.runSync()}}}
 function request(token=''){return new Request('https://wedding.test/api/state',{headers:token==='admin'?{cookie:'wedding_admin=test-admin'}:token?{authorization:'Bearer '+token}:{}})}
 async function act(type,fields={},token='admin'){const response=await api.action(new Request('https://wedding.test/api/action',{method:'POST',headers:{...Object.fromEntries(request(token).headers),'content-type':'application/json'},body:JSON.stringify({type,...fields})}));return {status:response.status,body:await response.json()}}
-async function ok(type,fields={},token='admin'){const r=await act(type,fields,token);assert.equal(r.status,200,JSON.stringify(r.body));return r.body}
+async function ok(type,fields={},token='admin'){if(type==='ticket'||type==='proxyTicket')fields={realName:'賓客'+(fields.guestId||token),...fields};const r=await act(type,fields,token);assert.equal(r.status,200,JSON.stringify(r.body));return r.body}
 async function state(token='a'){return (await api.state(request(token))).json()}
 async function answer(token='a',choice=0,extra={}){const s=await state(token);return act('answer',{choice,questionId:s.quiz.question.id,round:s.quiz.round,...extra},token)}
 beforeEach(async()=>{
@@ -80,12 +80,40 @@ test('closed rounds, invalid messages and anonymous submissions create neither t
 
 test('a blessing write failure rolls back the ticket transaction',async()=>{
  sqlite.exec("CREATE TRIGGER reject_blessing BEFORE INSERT ON blessings BEGIN SELECT RAISE(ABORT,'test failure'); END");
- await assert.rejects(()=>act('ticket',{numbers:[1,2,3,4,5,6],blessing:'祝福'},'a'));
+ await assert.rejects(()=>act('ticket',{numbers:[1,2,3,4,5,6],realName:'賓客a',blessing:'祝福'},'a'));
  assert.equal((await state()).myTicket,null);assert.equal((await state()).blessings.length,0);
 });
-test('photo deletion is host-only and touches only selected photo and storage object',async()=>{
- for(const id of ['p1','p2']){await api.run('INSERT INTO photos VALUES (?,?,?,?,?)',id,'a','賓客a','image/jpeg',1);await api.run('INSERT INTO media VALUES (?,?,?)',id,new Uint8Array([1]),1)}assert.equal((await act('photoDelete',{id:'p1'},'a')).status,403);assert.equal((await state()).photos.length,2);await ok('photoDelete',{id:'p1'});assert.deepEqual(deleted,['photos/p1']);assert.equal((await state()).photos[0].id,'p2');assert.ok(await api.first('SELECT id FROM media WHERE id=?','p2'));
+
+test('lottery requires a real name, rejects duplicate guest or normalized real name, and profile edits cannot bypass it',async()=>{
+ const numbers=[1,2,3,4,5,6];
+ for(const realName of [undefined,'',' ',{name:'假格式'},'王','王'.repeat(26)])assert.equal((await act('ticket',{numbers,realName},'a')).status,400);
+ await ok('ticket',{numbers,realName:'  Ａｌｉｃｅ　Ｃｈｅｎ  '},'a');assert.equal((await state('a')).myTicket.name,'Alice Chen');
+ assert.equal((await act('ticket',{numbers,realName:'alicechen',blessing:'不應新增'},'b')).status,400);assert.equal((await state()).blessings.length,0);
+ await ok('profileUpdate',{name:'新暱稱'},'a');assert.equal((await state('a')).myTicket.name,'Alice Chen');
+ assert.equal((await act('ticket',{numbers,realName:'王小明'},'a')).status,400);
 });
+
+test('simultaneous same-name bets create only one ticket and one accompanying blessing',async()=>{
+ const numbers=[1,2,3,4,5,6];
+ const results=await Promise.all(['a','b'].map(token=>act('ticket',{numbers,realName:'王小明',blessing:'幸福久久'},token)));
+ assert.deepEqual(results.map(r=>r.status).sort(),[200,400]);const s=await state('admin');assert.equal(s.tickets.length,1);assert.equal(s.blessings.length,1);
+});
+
+test('only host can correct a legacy ticket name, preserving its numbers and duplicate protection',async()=>{
+ const numbers=[1,2,3,4,5,6];await ok('ticket',{numbers,realName:'舊暱稱'},'a');await ok('ticket',{numbers,realName:'張小美'},'b');const id=(await state('a')).myTicket.id;
+ assert.equal((await act('ticketName',{id,realName:'王小明'},'a')).status,403);
+ await ok('ticketName',{id,realName:'王小明'});assert.equal((await state('a')).myTicket.name,'王小明');assert.deepEqual((await state('a')).myTicket.numbers,numbers);
+ assert.equal((await act('ticketName',{id,realName:'張 小美'})).status,400);assert.equal((await state('admin')).tickets.length,2);
+});
+test('photo owner and host may delete; other guests cannot, including forged names or owner IDs',async()=>{
+ for(const [id,owner] of [['p1','a'],['p2','b']]){await api.run('INSERT INTO photos VALUES (?,?,?,?,?)',id,owner,'同名賓客','image/jpeg',1);await api.run('INSERT INTO media VALUES (?,?,?)',id,new Uint8Array([1]),1)}
+ const owner=await state('a');assert.equal(owner.photos.find(p=>p.id==='p1').canDelete,true);assert.equal(owner.photos.find(p=>p.id==='p2').canDelete,false);assert.equal('guestId' in owner.photos[0],false);
+ assert.ok((await state('admin')).photos.every(p=>p.canDelete));assert.ok((await state('')).photos.every(p=>!p.canDelete));
+ assert.equal((await act('photoDelete',{id:'p1',guestId:'a',name:'同名賓客'},'b')).status,403);assert.equal((await act('photoDelete',{id:'p1'},'')).status,403);assert.deepEqual(deleted,[]);
+ await ok('photoDelete',{id:'p1'},'a');assert.deepEqual(deleted,['photos/p1']);assert.equal((await state()).photos[0].id,'p2');assert.ok(await api.first('SELECT id FROM media WHERE id=?','p2'));assert.equal(await api.first('SELECT id FROM media WHERE id=?','p1'),null);
+ await ok('photoDelete',{id:'p2'});assert.equal((await state()).photos.length,0);assert.deepEqual(deleted,['photos/p1','photos/p2']);
+});
+
 test('anonymous guests cannot join, leave or answer',async()=>{for(const type of ['quizJoin','quizLeave','answer'])assert.equal((await act(type,{},'')).status,401)});
 
 test('100 simultaneous answers close once with correct final count',async()=>{

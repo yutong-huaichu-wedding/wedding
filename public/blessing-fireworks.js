@@ -22,14 +22,15 @@
     actions.append(launchButton,pauseButton,queueStatus,guide);root.append(heading,arena,actions);target.replaceChildren(root);
     function later(fn,ms){const id=schedule(()=>{timers.delete(id);fn()},Math.max(0,ms));timers.add(id);return id}
     function clear(id){if(id!==null){cancel(id);timers.delete(id)}}
-    function capacity(){return Math.min(slots.length,entries.length)}
+    function capacity(){return Math.min(6,slots.length,entries.length)}
     function layout(){
       const width=arena.clientWidth||300,height=arena.clientHeight||300;
-      const cols=width>=1080?3:width>=620?2:1,rows=height>=580?2:1;
+      // An odd grid provides a true center. Side cells are used only by clicks.
+      const cols=width>=620?3:1,rows=height>=660?3:1;
       slots=[];
       for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
         const w=width/cols,h=height/rows;
-        slots.push({id:row*cols+col,left:col*w+8,top:row*h+6,width:w-16,height:h-12,x:(col+.5)*w,y:(row+.5)*h});
+        slots.push({id:row*cols+col,center:row===Math.floor(rows/2)&&col===Math.floor(cols/2),left:col*w+8,top:row*h+6,width:w-16,height:h-12,x:(col+.5)*w,y:(row+.5)*h});
       }
       root.dataset.columns=String(cols);root.dataset.rows=String(rows);
     }
@@ -38,7 +39,7 @@
       root.dataset.pending=String(pending);root.dataset.active=String(active.size);
       const rest=clock()<restUntil;
       queueStatus.textContent=pending?'待發射 '+pending+' 朵'+(rest?' · 稍作停留後繼續':' · 看完這一輪，再接續綻放'):rest?'讓祝福留在眼前，下一輪即將升空':'';
-      guide.textContent=!entries.length?'送出第一份祝福，一起點亮這片海':paused?'自動已暫停 · 點小貓仍可排隊發射':'自動綻放中 · 連點會排隊，每一則都能讀完';
+      guide.textContent=!entries.length?'送出第一份祝福，一起點亮這片海':paused?'自動已暫停 · 點小貓仍可排隊發射':'平時中央一朵 · 多點幾下，祝福向四周綻放';
       launchLabel.textContent=pending?'再點一朵，加入隊伍':'點我，讓祝福升空';
     }
     function empty(){if(!entries.length){arena.replaceChildren();const e=node('div','fireworks-empty','第一朵煙火，等你點亮。');e.append(node('span','','送出祝福後，就會在這片海上綻放。'));arena.append(e)}}
@@ -50,11 +51,11 @@
     function freeSlot(){
       const used=new Set([...active].map(r=>r.slot.id));
       const free=slots.filter(slot=>!used.has(slot.id));if(!free.length)return null;
-      if(!active.size)return free[Math.floor(random()*free.length)];
+      if(!active.size)return free.find(slot=>slot.center)||free[0];
       // Choose the largest gap to existing reserved reading spaces.
       return free.sort((a,b)=>Math.min(...[...active].map(r=>(b.x-r.slot.x)**2+(b.y-r.slot.y)**2))-Math.min(...[...active].map(r=>(a.x-r.slot.x)**2+(a.y-r.slot.y)**2)))[0];
     }
-    function queueAuto(ms=1100){clear(autoTimer);autoTimer=null;if(running&&!paused&&entries.length)autoTimer=later(()=>{autoTimer=null;if(!pending)launchNow();queueAuto()},ms)}
+    function queueAuto(ms=1100){clear(autoTimer);autoTimer=null;if(running&&!paused&&entries.length)autoTimer=later(()=>{autoTimer=null;if(!pending&&!active.size)launchNow();queueAuto()},ms)}
     function pumpAfter(ms){clear(pumpTimer);pumpTimer=null;if(running&&pending)pumpTimer=later(()=>{pumpTimer=null;pump()},ms)}
     function pump(){
       if(!running||!pending||!entries.length)return;
@@ -70,7 +71,7 @@
       if(!active.has(record))return;
       clear(record.flightTimer);clear(record.fadeTimer);clear(record.releaseTimer);clear(record.sparkTimer);
       record.button?.remove();record.message?.remove();record.bloom?.remove();active.delete(record);
-      if(!active.size&&wave>=capacity()){wave=0;restUntil=clock()+BREAK;later(controls,BREAK);if(!paused)queueAuto(BREAK+100)}
+      if(!active.size){wave=0;restUntil=clock()+BREAK;later(controls,BREAK);if(!paused)queueAuto(BREAK+100)}
       controls();pump();
     }
     function burst(record,manual=false){

@@ -32,7 +32,7 @@ test('cat illustration launches a real blessing; clicking rocket reveals early w
  assert.equal(s.find('.fireworks-cats').src,'/firework-cats-v1.webp');
  s.advance(1);const rocket=s.find('.fireworks-rocket');assert.ok(rocket);assert.equal(s.find('.fireworks-message'),null);
  rocket.onclick();const first=s.find('.fireworks-message');assert.match(first.textContent,/賓客甲/);
- s.advance(900);s.find('.fireworks-rocket').onclick();assert.equal(s.all('.fireworks-message').length,2);assert.ok(s.all('.fireworks-message').includes(first));
+ s.advance(900);s.show.launch();s.find('.fireworks-rocket').onclick();assert.equal(s.all('.fireworks-message').length,2);assert.ok(s.all('.fireworks-message').includes(first));
  assert.notEqual(s.all('.fireworks-message')[0].style.left,s.all('.fireworks-message')[1].style.left);
 });
 test('wide sky reserves six disjoint spaces; trajectories and bursts follow those spaces, including different heights',()=>{
@@ -40,7 +40,7 @@ test('wide sky reserves six disjoint spaces; trajectories and bursts follow thos
  for(let i=0;i<6;i++)assert.equal(s.show.launch(),true);
  s.advance(2100);assert.equal(s.all('.fireworks-rocket').length+s.all('.fireworks-message').length,6);
  const occupied=[...s.all('.fireworks-rocket'),...s.all('.fireworks-message')];assert.equal(new Set(occupied.map(e=>e.dataset.slot)).size,6);
- s.advance(2100);const messages=s.all('.fireworks-message');assert.equal(messages.length,6);assert.equal(new Set(messages.map(e=>e.style.left)).size,3);assert.equal(new Set(messages.map(e=>e.style.top)).size,2);
+ s.advance(2100);const messages=s.all('.fireworks-message');assert.equal(messages.length,6);assert.equal(new Set(messages.map(e=>e.style.left)).size,3);assert.ok(new Set(messages.map(e=>e.style.top)).size>=2);
  const rects=messages.map(e=>({x:parseFloat(e.style.left),y:parseFloat(e.style.top),w:parseFloat(e.style.width),h:parseFloat(e.style.height)}));
  for(let i=0;i<rects.length;i++)for(let j=i+1;j<rects.length;j++){const a=rects[i],b=rects[j];assert.ok(a.x+a.w<=b.x||b.x+b.w<=a.x||a.y+a.h<=b.y||b.y+b.h<=a.y)}
 });
@@ -55,9 +55,21 @@ test('fifty rapid clicks all queue, hold each text, then leave a break before th
  s.advance(200000);assert.equal(s.find('.fireworks-scene').dataset.pending,'0');assert.equal(s.all('.fireworks-message').length,0);assert.equal(s.all('.fireworks-rocket').length,0);
  assert.equal(s.history.length,50);assert.equal(new Set(s.history.slice(0,9).map(m=>m.id)).size,9);
 });
-test('automatic show fills all six wide-screen spaces without manual clicks',()=>{
- const s=setup({width:1600,height:720});s.show.update(many);s.show.setActive(true);s.advance(8300);
- assert.equal(s.all('.fireworks-message').length,6);assert.equal(new Set(s.all('.fireworks-message').map(m=>m.dataset.slot)).size,6);
+test('automatic show stays one at a time in the true center; only clicks add side rockets',()=>{
+ const s=setup({width:1600,height:720});s.show.update(many);s.show.setActive(true);s.advance(700);
+ const rocket=s.find('.fireworks-rocket');assert.equal(rocket.style.getPropertyValue('--end-x'),'800px');assert.equal(rocket.style.getPropertyValue('--end-y'),'360px');
+ s.advance(7600);assert.equal(s.all('.fireworks-message').length,1);assert.equal(s.all('.fireworks-rocket').length,0);
+ s.show.launch();const extra=s.find('.fireworks-rocket');assert.notEqual(extra.style.getPropertyValue('--end-x'),'800px');
+ s.advance(30000);assert.equal(s.all('.fireworks-message').length+s.all('.fireworks-rocket').length,1);
+ const current=s.find('.fireworks-message');if(current){assert.equal(parseFloat(current.style.left)+parseFloat(current.style.width)/2,800);assert.equal(parseFloat(current.style.top)+parseFloat(current.style.height)/2,360)}
+});
+test('unattended playback never exceeds one centered blessing across repeated cycles',()=>{
+ const s=setup({width:1600,height:720});s.show.update(many);s.show.setActive(true);
+ for(let i=0;i<100;i++){
+  s.advance(500);assert.ok(s.all('.fireworks-rocket').length+s.all('.fireworks-message').length<=1);
+  for(const rocket of s.all('.fireworks-rocket')){assert.equal(rocket.style.getPropertyValue('--end-x'),'800px');assert.equal(rocket.style.getPropertyValue('--end-y'),'360px')}
+ }
+ assert.ok(s.history.length>=3);
 });
 test('a 100-character blessing remains visible longer and retains its full text',()=>{
  const s=setup({width:320,height:360}),text='祝'.repeat(100);s.show.update([{id:'long',name:'長祝福',text}]);s.show.setActive(true);pause(s);s.show.launch();s.advance(2100);
@@ -71,7 +83,7 @@ test('narrow phones use one readable space and queue excess launches rather than
 test('new blessings are prioritized without restarting current flights; deletion immediately removes a displayed message',()=>{
  const s=setup();s.show.update(blessings);s.show.setActive(true);s.advance(700);const rocket=s.find('.fireworks-rocket');
  s.show.update(blessings);assert.equal(s.find('.fireworks-rocket'),rocket);
- s.show.update([...blessings,{id:'new',name:'新朋友',text:'新祝福'}]);s.advance(800);const fresh=s.all('.fireworks-rocket')[1];assert.equal(fresh.dataset.blessingId,'new');fresh.onclick();
+ s.show.update([...blessings,{id:'new',name:'新朋友',text:'新祝福'}]);s.advance(800);assert.equal(s.all('.fireworks-rocket').length,1);s.show.launch();const fresh=s.all('.fireworks-rocket')[1];assert.equal(fresh.dataset.blessingId,'new');fresh.onclick();
  assert.ok(s.all('.fireworks-message').some(m=>m.textContent.includes('新祝福')));s.show.update(blessings);assert.equal(s.find('.fireworks-message'),null);
 });
 test('backgrounding, switching activity and resizing stop timers but preserve queued and interrupted blessings',()=>{
