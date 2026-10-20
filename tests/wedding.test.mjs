@@ -75,3 +75,29 @@ test('100 simultaneous answers close once with correct final count',async()=>{
 test('simultaneous host next requests advance only once',async()=>{
  const results=await Promise.all([act('quizNext'),act('quizNext')]);assert.equal(results.filter(r=>r.status===200).length,1);assert.equal((await state()).quiz.index,0);
 });
+
+test('mahjong host manually controls shared phase; guests cannot change it and unrelated wedding state survives',async()=>{
+ assert.equal((await state('a')).mahjong.phase,'guess');
+ await ok('blessing',{text:'幸福快樂'},'a');await ok('ticket',{numbers:[1,2,3,4,5,6]},'a');await ok('quizJoin',{},'a');
+ const before=await state('a');
+ for(const phase of ['correct','wrong','guess']){
+   assert.equal((await act('mahjongPhase',{phase},'a')).status,403);
+   await ok('mahjongPhase',{phase});
+   assert.equal((await state('a')).mahjong.phase,phase);
+   assert.equal((await state('b')).mahjong.phase,phase);
+   assert.equal((await state('admin')).mahjong.phase,phase);
+ }
+ assert.equal((await act('mahjongPhase',{phase:'random'})).status,400);
+ assert.equal((await act('mahjongPhase',{phase:'correct'},'')).status,403);
+ const after=await state('a');assert.equal(after.mahjong.phase,'guess');assert.deepEqual(after.myTicket,before.myTicket);assert.deepEqual(after.quiz,before.quiz);assert.deepEqual(after.blessings,before.blessings);assert.deepEqual(after.lottery,before.lottery);
+});
+
+test('Kahoot configuration is host-only and shared with all guests, with strict external URL validation',async()=>{
+ assert.deepEqual((await state('a')).kahoot,{url:'https://kahoot.it/',pin:''});
+ assert.equal((await act('kahootUpdate',{url:'https://kahoot.it/?pin=123456',pin:'123456'},'a')).status,403);
+ await ok('kahootUpdate',{url:'https://kahoot.it/?pin=123456',pin:'123456'});
+ for(const who of ['a','b','admin'])assert.deepEqual((await state(who)).kahoot,{url:'https://kahoot.it/?pin=123456',pin:'123456'});
+ for(const url of ['javascript:alert(1)','http://kahoot.it/','https://kahoot.it.evil.test/','https://kahoot.it@evil.test/','https://evil.test/kahoot.it','https://user:secret@kahoot.it/','https://kahoot.it:444/'])assert.equal((await act('kahootUpdate',{url,pin:''})).status,400);
+ assert.equal((await act('kahootUpdate',{url:'https://kahoot.it/',pin:'<script>'})).status,400);
+ assert.equal((await state('a')).kahoot.pin,'123456');assert.equal((await state('a')).mahjong.phase,'guess');
+});

@@ -1,0 +1,14 @@
+婚禮網站交接（2026-10-16）
+
+目前正式小貓頁：
+https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/cat-memes
+GitHub 專案：https://github.com/yutong-huaichu-wedding/wedding
+此壓縮檔來自 GitHub main 的 0400a1b 版本，與正式網站目前的小貓題庫一致。
+
+目前小貓迷因問答有 9 題，8 支新影片與 3 張新照片已上線。答案影片是一個同時含畫面與聲音的 MP4。手機操作與筆電投影目前不會跨裝置同步；現有同步只適用於同一台電腦開啟的兩個視窗。
+
+使用者接下來想討論並可能製作「手機控制、筆電投影」：手機切題、公布、重播，筆電投影畫面及聲音跟著更新。請先和使用者確認現場流程，再修改與發布。以繁體中文、非技術用語溝通，每次修改前先簡短說明。
+
+務必保留正式賓客、照片、留言、彩券、原網址。不要清除或遷移既有資料庫、照片儲存空間，也不要把主持人密碼或權杖放進 GitHub。此壓縮檔只有網站原始檔與內建素材；正式婚禮資料和登入資訊不在裡面。若要上線，先和 GitHub 最新版本比對。
+
+重要檔案：public/cat-memes.html、public/cat-memes.js、public/cat-meme-questions.js、public/cat-meme-model.js、public/cat-meme-assets/、wrangler.jsonc、docs/CODEX_HANDOFF.md。

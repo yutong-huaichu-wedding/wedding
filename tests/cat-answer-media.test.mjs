@@ -43,7 +43,8 @@ const app=await readFile(new URL('../public/cat-memes.js',import.meta.url),'utf8
 function stage(){
  const player=()=>({src:'',plays:0,pauses:0,pause(){this.pauses++},removeAttribute(){this.src=''},load(){},async play(){this.plays++}});
  const picture={dataset:{},child:null,_html:'',set innerHTML(value){this._html=value;this.child=value.startsWith('<video')?{...player(),kind:'video'}:value.startsWith('<img')?{kind:'img',src:'',cloneNode(){return {...this}},replaceWith(next){picture.child=next}}:null},get innerHTML(){return this._html},querySelector(tag){return this.child?.kind===tag?this.child:null}};
- const nodes={picture,soundPlayer:player()};const ctx=vm.createContext({document:{},nodes});
+ picture.contains=node=>picture.child===node;picture.append=node=>{picture.child=node};
+ const nodes={picture,answerBox:{append(node){if(picture.child===node)picture.child=null}},soundPlayer:{...player(),kind:'video',id:'soundPlayer',setAttribute(){}}};const ctx=vm.createContext({document:{},nodes});
  vm.runInContext("const $=id=>nodes[id]??(nodes[id]={});let liveState,lastStageKey='',lastPlayed=-1;"+app.slice(app.indexOf('function stopSound()'),app.indexOf('function publish(')),ctx);
  return {ctx,nodes,picture};
 }
@@ -51,10 +52,22 @@ test('reveal renders video in main picture, plays only its soundtrack, then hide
  const {ctx,nodes,picture}=stage();const state={key:'a',index:0,total:1,prompt:'問',image:'blob:photo',revealed:false};
  ctx.renderStage(state);assert.equal(picture.child.kind,'img');assert.equal(nodes.soundPlayer.plays,0);
  const answer={...state,revealed:true,answerMedia:'blob:movie',answerMediaType:'video/mp4',sound:'blob:other-audio'};
- ctx.renderStage(answer);const video=picture.child;await ctx.playSound(answer);assert.equal(video.plays,1);assert.equal(nodes.soundPlayer.plays,0);assert.equal(video.src,'blob:movie');
+ ctx.renderStage(answer);const video=picture.child;assert.equal(video.controls,false);await ctx.playSound(answer);assert.equal(video.controls,false);assert.equal(video.plays,1);assert.equal(nodes.soundPlayer,video);assert.equal(video.src,'blob:movie');
  ctx.renderStage(state);assert.ok(video.pauses>0);assert.equal(picture.child.kind,'img');assert.equal(picture.child.src,'blob:photo');
 });
 test('legacy GIF and MP3 never play as separate streams',async()=>{
  const {ctx,nodes,picture}=stage();const answer={key:'a',index:0,total:1,prompt:'問',image:'blob:photo',revealed:true,answerMedia:'blob:gif',answerMediaType:'image/gif',sound:'blob:audio'};
  ctx.renderStage(answer);await ctx.playSound(answer);assert.equal(picture.child.src,'blob:gif');assert.equal(nodes.soundPlayer.plays,0);assert.equal(nodes.replay.disabled,true);
+});
+
+
+test('question GIF is kept as the original animated image, with no canvas freeze or answer leak',async()=>{
+ const gif=new Blob(['GIF89a animated frames'],{type:'image/gif'});
+ const q={...question(),image:gif};validateDeck([q]);
+ const packed=await packDeck([q],async b=>Buffer.from(await b.arrayBuffer()).toString('base64'));
+ const restored=unpackDeck(packed,(b,t)=>new Blob([Buffer.from(b,'base64')],{type:t}))[0];
+ assert.equal(restored.image.type,'image/gif');assert.equal(await restored.image.text(),await gif.text());
+ const {ctx,picture}=stage();ctx.renderStage({...projectionState(restored,0,1,false,()=> 'blob:animated-gif'),key:'animated'});
+ assert.equal(picture.child.kind,'img');assert.equal(picture.child.src,'blob:animated-gif');assert.equal(picture.child.onload,undefined);assert.equal(picture.child.replaceWith===undefined,false);
+ assert.ok(!app.includes('drawImage(element'));
 });

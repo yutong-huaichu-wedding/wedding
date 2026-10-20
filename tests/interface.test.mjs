@@ -7,17 +7,10 @@ function setup(){
  const elements=new Map();
  const element=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',value:'',dataset:{},setAttribute(){},disabled:false,style:{},classList:{add(){},remove(){},toggle(){},contains(){return false}},addEventListener(){},append(){},querySelectorAll(){return []}});return elements.get(id)};
  const document={getElementById:element,querySelector:element,querySelectorAll(){return []},createElement:element,body:element('body'),hidden:false};
- const ctx=vm.createContext({document,window:{addEventListener(){}},localStorage:{getItem(){return null}},setTimeout(){},setInterval(){},clearTimeout(){},console,fetch:()=>new Promise(()=>{}),URL,Blob,confirm:()=>true});
+ const ctx=vm.createContext({document,window:{addEventListener(){}},localStorage:{getItem(){return null}},setTimeout(){},setInterval(){},clearTimeout(){},console,URLSearchParams,location:{search:''},fetch:()=>new Promise(()=>{}),URL,Blob,confirm:()=>true});
  vm.runInContext(readFileSync(new URL('../public/app.js',import.meta.url),'utf8'),ctx);
- vm.runInContext(readFileSync(new URL('../public/rehearsal.js',import.meta.url),'utf8'),ctx);
  return {ctx,element,run:code=>vm.runInContext(code,ctx)};
 }
-test('quiz shows four symbols and colors, progress, disabled late join and published answer',()=>{
- const {run,element}=setup();run(`data.quiz={index:0,open:true,joined:true,eligible:false,totalParticipants:10,answeredCount:9,participantCount:11,myAnswer:null,myScore:0,question:{id:'q',text:'新人 <測試>',options:['甲','乙','丙','丁']}};renderQuiz()`);
- assert.match(element('quizStatus').textContent,/9／10 人已回答/);assert.match(element('quizParticipation').innerHTML,/從下一題開始/);
- const html=element('quizContent').innerHTML;for(let i=0;i<4;i++)assert.ok(html.includes('quiz-color-'+i));for(const symbol of ['▲','◆','●','■'])assert.ok(html.includes(symbol));assert.equal((html.match(/disabled/g)||[]).length,4);assert.ok(html.includes('&lt;測試&gt;'));
- run('data.quiz.open=false;data.quiz.question.correct=2;renderQuiz()');assert.match(element('quizContent').innerHTML,/quiz-color-2 correct/);assert.match(element('quizContent').innerHTML,/C．丙 ✓ 正確答案/);
-});
 test('proxy selection is independent, capped at six and clears on guest change',()=>{
  const {run,element}=setup();run(`data.guests=[{id:'a',name:'同名'},{id:'b',name:'同名'},{id:'c',name:'已投注'}];data.tickets=[{guestId:'c'}];picks=[40,41,42,43,44,45];selectProxyGuest('a');[1,2,3,4,5,6,7].forEach(pickProxyNumber)`);
  assert.equal(run('proxyPicks.join()'),'1,2,3,4,5,6');assert.equal(run('picks.join()'),'40,41,42,43,44,45');assert.equal(element('proxySubmit').disabled,false);assert.match(element('proxyGuest').innerHTML,/報到順序 2/);assert.match(element('proxyGuest').innerHTML,/disabled>已投注/);
@@ -28,20 +21,39 @@ test('album deletion is visible to host only and escapes uploader name',()=>{
  const {run}=setup();run(`data.photos=[{id:'p1',name:'<賓客>',url:'/api/photo/p1'}]`);
  assert.doesNotMatch(run('photoCards(false)'),/刪除照片|removePhoto/);const html=run('photoCards(true)');assert.match(html,/刪除照片/);assert.match(html,/&lt;賓客&gt;/);assert.match(html,/removePhoto\('p1'\)/);assert.match(html,/target="_blank"/);
 });
-test('private rehearsal closes after its single simulated participant answers',()=>{
- const {run}=setup();run(`data.questions=[{text:'試題',options:['甲','乙','丙','丁'],correct:0}];rehearsal={quizIndex:-1,quizOpen:false,choice:null,score:0};renderRehearsal=()=>{};rehearsalNextQuestion();rehearsalAnswer(0)`);
- assert.equal(run('rehearsal.quizOpen'),false);assert.equal(run('rehearsal.score'),10);assert.match(run('rehearsalQuizGuest()'),/1／1 人已回答/);
+test('mahjong projection renders three distinct manual views and restores when changing projection modes',()=>{
+ const {run,element}=setup();
+ for(const [phase,title] of [['guess','猜猜是什麼牌？'],['correct','答對了！'],['wrong','答錯了！']]){
+  run(`data.mahjong={phase:${JSON.stringify(phase)}};openProjection('mahjong');renderMahjongControls()`);
+  assert.equal(element('projector').dataset.mode,'mahjong');assert.equal(element('projector').dataset.mahjongPhase,phase);
+  assert.ok(element('projMessage').innerHTML.includes(title));assert.ok(element('mahjongHostStatus').textContent.includes(title));
+  assert.equal(element('projBalls').innerHTML,'');assert.equal(element('projWall').style.display,'none');
+ }
+ run("openProjection('wall');data.mahjong={phase:'wrong'};openProjection('mahjong')");assert.ok(element('projMessage').innerHTML.includes('答錯了！'));
+ run("data.mahjong={phase:'invalid'};renderProjection()");assert.ok(element('projMessage').innerHTML.includes('猜猜是什麼牌？'));
 });
-test('question order changes immediately and rapid moves save in sequence',async()=>{
- const {run,element}=setup();run(`data.questions=[{id:'a'},{id:'b'},{id:'c'}];renderQuestionEditor=()=>{};globalThis.requests=[];globalThis.resolvers=[];act=(type,fields,options)=>{requests.push({type,fields,options});return new Promise(resolve=>resolvers.push(resolve))};globalThis.first=reorderQuestions(['b','a','c'])`);
- assert.equal(run('data.questions.map(q=>q.id).join()'),'b,a,c');assert.match(element('questionOrderStatus').textContent,/正在儲存/);
- await run(`reorderQuestions(['b','c','a'])`);assert.equal(run('requests.length'),1);assert.equal(run('data.questions.map(q=>q.id).join()'),'b,c,a');run('resolvers[0]({ok:true})');await new Promise(resolve=>setImmediate(resolve));assert.equal(run('requests.length'),2);assert.equal(run('requests[1].fields.ids.join()'),'b,c,a');assert.equal(run('requests[1].options.skipRefresh'),true);run('resolvers[1]({ok:true})');await run('first');assert.match(element('questionOrderStatus').textContent,/已儲存/);
+
+test('mahjong phone controls send only manual state and prevent overlapping requests without opening projection',async()=>{
+ const {run,element}=setup();run("globalThis.calls=[];globalThis.release=null;act=(type,fields)=>{calls.push({type,...fields});return new Promise(resolve=>release=resolve)};globalThis.pending=setMahjongPhase('correct')");
+ assert.equal(element('mahjongCorrect').disabled,true);await run("setMahjongPhase('wrong')");assert.equal(run('calls.length'),1);assert.equal(run('calls[0].type'),'mahjongPhase');assert.equal(run('calls[0].phase'),'correct');assert.equal(run('projection'),'');
+ run('release(null)');await run('pending');assert.equal(element('mahjongCorrect').disabled,false);
 });
-test('question save action can finish without waiting for full state refresh',async()=>{
- const {run}=setup();run(`globalThis.reads=0;refresh=async()=>{reads++};fetch=async()=>({ok:true,json:async()=>({ok:true})})`);
- await run(`act('questionEdit',{id:'a'},{skipRefresh:true})`);assert.equal(run('reads'),0);await run(`act('quizJoin')`);assert.equal(run('reads'),1);
+
+
+test('Kahoot replaces old quiz UI and shared configuration updates guest links, pin and projection',()=>{
+ const {run,element}=setup();
+ run("data.kahoot={url:'https://kahoot.it/?pin=123456',pin:'123456'};renderKahoot();openProjection('kahoot')");
+ assert.equal(element('kahootJoin').href,'https://kahoot.it/?pin=123456');assert.match(element('kahootGuestPin').textContent,/123456/);assert.match(element('projMessage').innerHTML,/Kahoot!.*123456/s);
+ run("data.admin=true;renderKahoot();kahootDirty=true");element('kahootUrl').value='https://kahoot.it/?pin=888888';run("data.kahoot={url:'https://kahoot.it/?pin=999999',pin:'999999'};renderKahoot()");
+ assert.equal(element('kahootUrl').value,'https://kahoot.it/?pin=888888');assert.equal(element('kahootJoin').href,'https://kahoot.it/?pin=999999');
+ run("data.kahoot={url:'javascript:alert(1)',pin:'<script>'};renderKahoot()");assert.equal(element('kahootJoin').href,'https://kahoot.it/');assert.doesNotMatch(element('kahootGuestPin').textContent,/<script>/);
+ const html=readFileSync(new URL('../public/wedding_1212.html',import.meta.url),'utf8');
+ for(const id of ['quizPane','quizTab','ad-questions','quizRanking','questionManager'])assert.ok(!html.includes('id="'+id+'"'));
+ assert.ok(!html.includes('快問快答'));assert.ok(!html.includes('rehearsal.js'));assert.match(html,/id="kahootJoin"[^>]+target="_blank"[^>]+rel="noopener noreferrer"/);
 });
-test('a state request started before an edit cannot overwrite its updated questions',async()=>{
- const {run}=setup();run(`refreshing=false;globalThis.finishRead=null;render=()=>{};fetch=()=>new Promise(resolve=>finishRead=resolve);data.questions=[{id:'a',text:'舊內容'}];globalThis.pendingRead=refresh();questionRevision++;data.questions=[{id:'a',text:'新內容'}];finishRead({ok:true,json:async()=>({...data,questions:[{id:'a',text:'舊內容'}]})})`);
- await run('pendingRead');assert.equal(run('data.questions[0].text'),'新內容');
+test('saving Kahoot sends configuration once, disables edits and retains failed drafts',async()=>{
+ const {run,element}=setup();run("data.admin=true;renderKahoot();kahootDirty=true");element('kahootUrl').value='https://kahoot.it/?pin=333333';element('kahootPin').value='333333';
+ run("globalThis.sent=[];globalThis.finish=null;act=(type,fields)=>{sent.push({type,...fields});return new Promise(resolve=>finish=resolve)};globalThis.saving=saveKahoot()");
+ assert.equal(element('kahootUrl').disabled,true);await run('saveKahoot()');assert.equal(run('sent.length'),1);assert.equal(run('sent[0].type'),'kahootUpdate');
+ run('finish(null)');await run('saving');assert.equal(element('kahootUrl').disabled,false);assert.equal(element('kahootPin').value,'333333');assert.equal(run('kahootDirty'),true);
 });
