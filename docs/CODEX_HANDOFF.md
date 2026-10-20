@@ -1,3 +1,7 @@
+## 最新追加：2026-10-20 雙貓煙火花園
+
+詳 [FIREWORK_GARDEN_20261020.md](FIREWORK_GARDEN_20261020.md)。新版 blessing-fireworks.js/css 保留每則祝福空間與完整閱讀時間，點擊加入待發射隊伍；寬畫面最多六則並放，按批次留空檔。新增 firework-cats-v1.webp（由使用者照片生成的雙貓圖）。尚未部署。下方「最多兩朵／只顯示一則」屬舊版說明。
+
 ## 最新追加：2026-10-20 海洋主題與祝福煙火
 
 詳 [OCEAN_FIREWORKS_20261020.md](OCEAN_FIREWORKS_20261020.md)。新增 ocean.css 全站主題與 blessing-fireworks.js/css。移除舊彈幕播放排程，顯示祝福時啟用煙火，切換活動與背景分頁停止。動畫各畫面獨立，祝福名單共用原雲端來源。尚未部署。

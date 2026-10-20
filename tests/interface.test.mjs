@@ -70,8 +70,9 @@ test('lottery sends one ticket with blessing, keeps failed drafts, and clears on
 
 test('wedding wall mounts fireworks once and stops them when changing projection activity',()=>{
  const {run}=setup();
- run("globalThis.walls=[];window.WeddingFireworks={mount(target){const item={target,active:false,update(messages){this.messages=messages},setActive(active){this.active=active}};walls.push(item);return item}};data.blessings=[{id:'a',name:'賓客',text:'新婚快樂'}];openProjection('wall')");
+ run("globalThis.walls=[];window.WeddingFireworks={mount(target){const item={target,displayAtMount:target.style.display,modeAtMount:$('projector').dataset.mode,active:false,update(messages){this.messages=messages},setActive(active){this.active=active}};walls.push(item);return item}};data.blessings=[{id:'a',name:'賓客',text:'新婚快樂'}];openProjection('wall')");
  assert.equal(run('walls.length'),1);assert.equal(run('walls[0].active'),true);assert.equal(run('walls[0].messages[0].text'),'新婚快樂');
+ assert.equal(run('walls[0].displayAtMount'),'block');assert.equal(run('walls[0].modeAtMount'),'wall');
  run('renderProjection()');assert.equal(run('walls.length'),1);
  run("openProjection('mahjong')");assert.equal(run('walls[0].active'),false);
  run("openProjection('wall');closeProjection()");assert.equal(run('walls[0].active'),false);
