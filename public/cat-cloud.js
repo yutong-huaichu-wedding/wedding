@@ -1,7 +1,7 @@
 // Cross-device transport. Only durable media URLs leave the controlling browser.
 import {projectionState} from './cat-meme-model.js';
-export function createCloudProjection({session,screen=false,onState=()=>{},onStatus=()=>{},fetchImpl=fetch,clock=Date.now,pollMs=900}) {
-  const endpoint='/api/cat-live?session='+encodeURIComponent(session);
+export function createCloudProjection({session,screen=false,follow=false,onState=()=>{},onStatus=()=>{},fetchImpl=fetch,clock=Date.now,pollMs=900}) {
+  const endpoint=screen&&follow?'/api/cat-live?follow=1':'/api/cat-live?session='+encodeURIComponent(session);
   const uploaded=new WeakMap();
   let enabled=screen,closed=false,timer=null,pending=null,sending=false,revision=null,seen=false,lastSerial=null,job=0,latest=0,requestedPlay=-1,sentPlay=-1;
   async function json(url,options={}) {
@@ -56,13 +56,13 @@ export function createCloudProjection({session,screen=false,onState=()=>{},onSta
     try {
       const data=await json(endpoint+(screen?'&screen=1':''),{signal:AbortSignal.timeout(5000)});
       if(screen&&data.state&&data.revision!==revision) {
-        const autoplay=seen&&data.state.serial!==lastSerial&&data.playAt>clock()-15000;
+        const autoplay=seen&&data.state.serial!==lastSerial&&data.playAt>(data.serverNow??clock())-15000;
         lastSerial=data.state.serial;
         onState(data.state,autoplay);revision=data.revision;seen=true;
       }
-      if(!sending&&!pending)onStatus({kind:'online',connected:clock()-(data.screenAt||0)<12000,
+      if(!sending&&!pending)onStatus({kind:'online',active:data.active!==false,connected:(data.serverNow??clock())-(data.screenAt||0)<12000,
         message:screen?(data.state?'✓ 已連線，跟隨手機主持人操作。':'等待手機主持人出題…'):
-          clock()-(data.screenAt||0)<12000?'✓ 電腦投影已連線；聲音由投影電腦播放。':'✓ 雲端同步已啟用，請在電腦開啟投影連結。'});
+          (data.serverNow??clock())-(data.screenAt||0)<12000?'✓ 電腦投影已連線；聲音由投影電腦播放。':'✓ 雲端同步已啟用，請在電腦開啟投影連結。'});
       if(!screen)void pump();
     } catch(error){onStatus({kind:'error',message:'連線中斷，正在自動重連：'+error.message})}
     finally{if(!closed&&enabled)timer=setTimeout(poll,pollMs)}

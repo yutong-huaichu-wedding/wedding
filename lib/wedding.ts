@@ -26,6 +26,8 @@ export const lotteryDefault = { status: 'open', result: [] as number[], startedA
 export const quizDefault = { index: -1, open: false };
 export const mahjongDefault = { phase: 'guess' };
 export const kahootDefault = { url: 'https://kahoot.it/', pin: '' };
+export const projectionDefault = { mode: 'waiting', session: '' };
+const projectionModes = ['waiting', 'mahjong', 'cat', 'lotto', 'wall', 'kahoot'];
 export function validKahootUrl(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > 1000) return null;
   try { const url = new URL(value); return url.protocol === 'https:' && ['kahoot.it','www.kahoot.it'].includes(url.hostname) && !url.username && !url.password && (!url.port || url.port === '443') ? url.href : null; } catch { return null; }
@@ -47,7 +49,7 @@ const closeCompletedQuiz = () => db().prepare(`
 export async function state(request: Request) {
   const admin = await isAdmin(request);
   const me = await guest(request);
-  const [blessings, photos, questions, tickets, guests, lotto, quiz, mahjong, kahoot] = await Promise.all([
+  const [blessings, photos, questions, tickets, guests, lotto, quiz, mahjong, kahoot, projection] = await Promise.all([
     all('SELECT b.id,b.name,b.text,b.created_at AS time,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue FROM blessings b LEFT JOIN guests g ON g.id=b.guest_id ORDER BY b.created_at DESC LIMIT 150'),
     all('SELECT id,name,created_at AS time FROM photos ORDER BY created_at DESC LIMIT 150'),
     all('SELECT id,text,options,correct,position FROM questions ORDER BY position,id'),
@@ -56,7 +58,8 @@ export async function state(request: Request) {
     setting('lottery', lotteryDefault),
     setting('quiz', quizDefault),
     setting('mahjong', mahjongDefault),
-    setting('kahoot', kahootDefault)
+    setting('kahoot', kahootDefault),
+    setting('projection', projectionDefault)
   ]);
   const parsedTickets: Row[] = tickets.map(t => ({ ...t, numbers: JSON.parse(t.numbers) }));
   const result = Array.isArray(lotto.result) ? lotto.result : [];
@@ -72,7 +75,7 @@ export async function state(request: Request) {
   const myScore = me ? await first('SELECT COUNT(*) AS score FROM answers WHERE guest_id=? AND correct=1', me.id) : null;
   const scores = admin ? await all('SELECT g.name,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue,COUNT(a.id)*10 AS score FROM guests g JOIN answers a ON a.guest_id=g.id AND a.correct=1 GROUP BY g.id ORDER BY score DESC,g.created_at LIMIT 30') : [];
   return good({
-    mahjong, kahoot,
+    mahjong, kahoot, projection,
     admin, me: me ? { id: me.id, name: me.name, avatarKind: me.avatarKind, avatarValue: me.avatarValue } : null,
     blessings: blessings.reverse(), photos: photos.reverse().map(p => ({ ...p, url: '/api/photo/' + p.id })),
     lottery: { ...lotto, winners, ticketCount: parsedTickets.length },
@@ -80,6 +83,17 @@ export async function state(request: Request) {
     quiz: { ...publicQuiz, joined, eligible: !!me && roster.includes(me.id), participantCount: Number(participantCount?.count || 0), answeredCount: Number(answeredCount?.count || 0), totalParticipants: roster.length, question: currentQuestion, total: questions.length, myAnswer: myAnswer?.choice ?? null, myScore: Number(myScore?.score || 0) * 10 },
     ...(admin ? { guests, tickets: parsedTickets, questions: questions.map(q => ({ ...q, options: JSON.parse(q.options) })), scores } : {})
   });
+}
+
+// A dedicated projection reads only display state, without guest/profile/legacy quiz queries.
+export async function readProjection() {
+  const [projection, mahjong, lottery, kahoot] = await Promise.all([
+    setting('projection', projectionDefault), setting('mahjong', mahjongDefault),
+    setting('lottery', lotteryDefault), setting('kahoot', kahootDefault)
+  ]);
+  const winners = lottery.status === 'drawn' ? (await all('SELECT name FROM tickets WHERE numbers=?', JSON.stringify(lottery.result))).map(row => row.name) : [];
+  const blessings = projection.mode === 'wall' ? await all('SELECT b.name,b.text,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue FROM blessings b LEFT JOIN guests g ON g.id=b.guest_id ORDER BY b.created_at DESC LIMIT 150') : [];
+  return good({ projection, mahjong, lottery: { ...lottery, winners }, kahoot, blessings });
 }
 
 export async function action(request: Request) {
@@ -206,9 +220,17 @@ export async function action(request: Request) {
     await setSetting('kahoot', { url, pin });
     return good({ ok: true });
   }
+  if (type === 'projectionMode') {
+    if (!projectionModes.includes(body.mode) || body.mode === 'cat') return bad('請從小貓控制頁出題以切換小貓投影');
+    await setSetting('projection', { mode: body.mode, session: '' });
+    return good({ ok: true });
+  }
   if (type === 'mahjongPhase') {
     if (!['guess', 'correct', 'wrong'].includes(body.phase)) return bad('請選擇猜牌、答對或答錯畫面');
-    await setSetting('mahjong', { phase: body.phase });
+    await db().batch([
+      db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('mahjong', JSON.stringify({ phase: body.phase })),
+      db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('projection', JSON.stringify({ mode: 'mahjong', session: '' }))
+    ]);
     return good({ ok: true });
   }
   if (type === 'lottoState') {
@@ -230,6 +252,7 @@ export async function action(request: Request) {
     do { crypto.getRandomValues(random); } while (random[0] >= limit);
     const picked = tickets[random[0] % tickets.length];
     await setSetting('lottery', { status: 'drawn', result: JSON.parse(picked.numbers), startedAt: now() });
+    await setSetting('projection', { mode: 'lotto', session: '' });
     return good({ ok: true });
   }
   if (type === 'lottoReset') {

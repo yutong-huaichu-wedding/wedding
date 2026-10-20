@@ -1,4 +1,4 @@
-import {createCloudProjection} from './cat-cloud.js';
+import {createCloudProjection} from './cat-cloud.js?v=20261020-sync2';
 import {ready,validateMedia,validateDeck,projectionState,packDeck,unpackDeck,moveCatQuestion} from './cat-meme-model.js';
 import {createCatMemeDeck,mergeCatMemeDeck,catMemeQuestions,upgradeCatMemeSounds,applyFinalCatMemeDeck} from './cat-meme-questions.js';
 const $=id=>document.getElementById(id);
@@ -8,9 +8,10 @@ let session=params.get('session');
 if(!session){try{session=sessionStorage.getItem('wedding-cat-room')}catch{}}
 if(!session||!/^[0-9a-f-]{36}$/i.test(session))session=crypto.randomUUID();
 try{if(!screenMode)sessionStorage.setItem('wedding-cat-room',session)}catch{}
-const cloudScreen=screenMode&&params.get('cloud')==='1';
+const cloudScreen=screenMode&&params.get('local')!=='1';
+let projectionVisible=params.get('embedded')!=='1',pendingPlayback=false;
 let cloud=null;
-function projectionUrl(){const url=new URL(location.href);url.search='?screen=1&cloud=1&session='+encodeURIComponent(session);return url.href} 
+function projectionUrl(){return new URL('/wedding_1212?display=1',location.href).href}
 const channel=typeof BroadcastChannel!=='undefined'?new BroadcastChannel('wedding-cat-memes:'+session):null;
 let orderSaving=false,pendingOrder=null;
 let deck=[],index=0,revealed=false,editingId=null,dirty=false,busy=false,dbPromise=null,noticeTimer,lastScreenAt=0,lastHostAt=Date.now(),playSerial=Date.now(),lastPlayed=-1,lastStageKey='',liveState=null;
@@ -184,10 +185,27 @@ if(channel)channel.onmessage=event=>{
   else if(screenMode&&m.type==='alive')lastHostAt=Date.now();
   else if(!screenMode&&(m.type==='ready'||m.type==='heartbeat')){lastScreenAt=Date.now();$('screenStatus').textContent='✓ 投影已連接。請在投影畫面先按「啟用投影音效」。';channel.postMessage({type:'alive'});if(m.type==='ready'){stopSound();if(!cloud?.enabled)publish(false)}}
 };
-cloud=createCloudProjection({session,screen:cloudScreen,onState:(state,autoplay)=>{lastHostAt=Date.now();renderStage(state,autoplay)},onStatus:status=>{
+cloud=createCloudProjection({session,screen:cloudScreen,follow:screenMode&&(params.get('follow')==='1'||!params.has('session')),onState:(state,autoplay)=>{
+  lastHostAt=Date.now();if(!state.revealed)pendingPlayback=false;
+  if(autoplay&&!projectionVisible)pendingPlayback=true;
+  renderStage(state,autoplay&&projectionVisible);
+},onStatus:status=>{
+  if(screenMode&&status.active===false){for(const player of [$('soundPlayer'),$('picture').querySelector('video')])player?.pause();pendingPlayback=false}
   const target=screenMode?$('unlockStatus'):$('screenStatus');target.textContent=status.message;
   if(!screenMode)$('cloudStatus').textContent=status.message;
 }});
+window.addEventListener('message',event=>{
+  if(!screenMode||event.origin!==location.origin||event.source!==window.parent||event.data?.type!=='wedding-projection-visible')return;
+  projectionVisible=!!event.data.active;
+  if(!projectionVisible){for(const player of [$('soundPlayer'),$('picture').querySelector('video')])player?.pause()}
+  else if(pendingPlayback&&liveState?.revealed){pendingPlayback=false;lastPlayed=liveState.serial;void playSound(liveState)}
+});
+async function startCloud(sendCurrent=true){
+  $('enableCloud').disabled=true;
+  try{await cloud.enable();stopSound();$('enableCloud').textContent='將目前這題送上投影';$('openScreen').textContent='↗ 開啟電腦專用投影';if(sendCurrent){publish(false);notice('目前題目已送往電腦專用投影。請保持手機頁面在前景。')}}
+  catch(error){$('cloudStatus').textContent=error.message}
+  finally{$('enableCloud').disabled=false}
+}
 if(screenMode){
   document.body.classList.add('screen-mode');
   $('unlockSound').onclick=async()=>{
@@ -201,11 +219,7 @@ if(screenMode){
   setInterval(()=>{if(!cloudScreen)channel?.postMessage({type:'heartbeat'});if(!cloudScreen&&Date.now()-lastHostAt>7000)$('unlockStatus').textContent='主持人頁面尚未連接，請保持主持人頁面開啟。'},2500);
 }else{
   $('projectionLink').value=projectionUrl();
-  $('enableCloud').onclick=async()=>{
-    $('enableCloud').disabled=true;
-    try{await cloud.enable();stopSound();$('enableCloud').textContent='✓ 手機同步已啟用';$('openScreen').textContent='↗ 開啟雲端投影';publish(false);notice('同步已啟用，將投影連結傳到電腦開啟。請保持手機頁面在前景。')}
-    catch(error){$('cloudStatus').textContent=error.message;$('enableCloud').disabled=false}
-  };
+  $('enableCloud').onclick=()=>startCloud(true);
   $('copyProjection').onclick=async()=>{try{await navigator.clipboard.writeText(projectionUrl());notice('投影連結已複製，請貼到電腦瀏覽器開啟。')}catch{$('projectionLink').focus();$('projectionLink').select();notice('請長按或手動複製上方投影連結。')}};
   $('loadStarter').textContent='加入 '+catMemeQuestions.length+' 題迷因題庫';$('loadStarter').onclick=addStarterDeck;
   $('editor').addEventListener('input',()=>{dirty=true});$('editor').addEventListener('change',()=>{dirty=true});$('editor').addEventListener('submit',saveEditor);
@@ -219,16 +233,11 @@ if(screenMode){
   $('hideAnswer').onclick=()=>{stopSound();revealed=false;renderDeck();publish()};$('previous').onclick=()=>selectQuestion(index-1);$('next').onclick=()=>selectQuestion(index+1);
   $('volume').oninput=()=>publish(false);
   $('soundCheck').onclick=()=>{const q=current();if(!ready(q))return;void playSound({...projectionState(q,index,deck.length,true,src),volume:Number($('volume').value)},true);notice('正在主持人這台電腦試聽影片聲音，投影畫面不會公布答案。')};
-  $('openScreen').onclick=()=>{
-    if(cloud.enabled){window.open(projectionUrl(),'cat-cloud-'+session);return}
-    if(!channel)return notice('此瀏覽器不支援獨立投影，請先啟用手機跨裝置同步。');
-    const screenUrl=new URL(location.href);screenUrl.search='?screen=1&session='+encodeURIComponent(session);const target=window.open(screenUrl.href,'cat-memes-'+session);
-    if(!target)notice('投影視窗未開啟，請允許這個網站開啟新視窗。');else notice('將新視窗移到現場螢幕，再按「啟用投影音效」。');
-  };
+  $('openScreen').onclick=()=>{window.open(projectionUrl(),'wedding-shared-projection')};
   setInterval(()=>{if(!connected())$('screenStatus').textContent='投影尚未連接。可先在左側試玩。'},3000);
-  (async()=>{setBusy(true);try{const saved=await loadDeck(),revision=await loadDeckRevision(),incoming=await starterDeck();if(saved===undefined){await storeDeck(incoming);await storeDeckRevision()}else if(revision!=='2026-10-15-final-nine'){await storeDeck(applyFinalCatMemeDeck(validateDeck(saved),incoming));await storeDeckRevision();notice('已套用最新 9 題及指定照片、影片。')}else {deck=validateDeck(saved);const updated=await upgradeCatMemeSounds(deck,incoming);if(updated!==deck){await storeDeck(updated);notice('內建題目已改用有聲影片，自訂素材與題目順序均已保留。')}}fillEditor(current());renderDeck();publish();}catch{deck=[];fillEditor();renderDeck();publish();$('storageStatus').textContent='無法讀取保存的題庫，請勿清除瀏覽器資料；可先重新整理，或匯入先前備份。';notice('題庫未能讀取，請重新整理或匯入備份。')}finally{setBusy(false)}})();
+  (async()=>{setBusy(true);try{const saved=await loadDeck(),revision=await loadDeckRevision(),incoming=await starterDeck();if(saved===undefined){await storeDeck(incoming);await storeDeckRevision()}else if(revision!=='2026-10-15-final-nine'){await storeDeck(applyFinalCatMemeDeck(validateDeck(saved),incoming));await storeDeckRevision();notice('已套用最新 9 題及指定照片、影片。')}else {deck=validateDeck(saved);const updated=await upgradeCatMemeSounds(deck,incoming);if(updated!==deck){await storeDeck(updated);notice('內建題目已改用有聲影片，自訂素材與題目順序均已保留。')}}fillEditor(current());renderDeck();publish();}catch{deck=[];fillEditor();renderDeck();publish();$('storageStatus').textContent='無法讀取保存的題庫，請勿清除瀏覽器資料；可先重新整理，或匯入先前備份。';notice('題庫未能讀取，請重新整理或匯入備份。')}finally{setBusy(false);void startCloud(false)}})();
 }
 window.addEventListener('beforeunload',event=>{if(!screenMode&&(dirty||busy||orderSaving)){event.preventDefault();event.returnValue=''}});
-window.addEventListener('pagehide',()=>{cloud?.close();stopSound();channel?.close();if(editorImageUrl)URL.revokeObjectURL(editorImageUrl);if(editorVideoUrl)URL.revokeObjectURL(editorVideoUrl);for(const url of urls)URL.revokeObjectURL(url)});
+window.addEventListener('pagehide',event=>{for(const player of [$('soundPlayer'),$('picture').querySelector('video')])player?.pause();if(event.persisted)return;cloud?.close();stopSound();channel?.close();if(editorImageUrl)URL.revokeObjectURL(editorImageUrl);if(editorVideoUrl)URL.revokeObjectURL(editorVideoUrl);for(const url of urls)URL.revokeObjectURL(url)});
 
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&cloud?.enabled&&!screenMode)publish(false)});

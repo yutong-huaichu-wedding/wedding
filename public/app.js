@@ -2,6 +2,8 @@
 const $ = id => document.getElementById(id);
 const htmlFragments=new Map();
 function setHTML(id,markup){const target=$(id);if(!target)return;const previous=htmlFragments.get(id);if(previous?.target===target&&previous.markup===markup)return;target.innerHTML=markup;htmlFragments.set(id,{target,markup})}
+const displayMode=new URLSearchParams(location.search).get('display')==='1';
+let pollTimer=null,pollRunning=false,pollWake=false,pollStarted=false;
 const TOKEN_KEY = 'wedding_1212_guest_token';
 if(!$('kahootJoin')){const warning=document.createElement('p');warning.className='notice';warning.textContent='這份網頁與程式版本不一致。後台登入仍可使用；請完成修復檔上傳後，按 Ctrl＋F5 重新整理。';$('adminLogin')?.prepend(warning)}
 let data = { admin:false, me:null, blessings:[], photos:[], lottery:{status:'open',result:[],startedAt:0,winners:[],ticketCount:0}, myTicket:null, guests:[],tickets:[],mahjong:{phase:'guess'}, kahoot:{url:'https://kahoot.it/',pin:''} };
@@ -60,12 +62,13 @@ function refresh(afterAction=false){
   const reading=(async()=>{
     try{
       const wasComplete=completeGuest();
-      const r=await fetch('/api/state',{headers:authHeaders(),credentials:'same-origin',cache:'no-store'});
+      const r=await fetch(displayMode?'/api/projection':'/api/state',{headers:authHeaders(),credentials:'same-origin',cache:'no-store',...(typeof AbortSignal!=='undefined'&&AbortSignal.timeout?{signal:AbortSignal.timeout(10000)}:{})});
       if(!r.ok)throw Error('無法讀取最新資料');
       const fresh=await r.json(),changed=JSON.stringify(fresh)!==JSON.stringify(data);data=fresh;if(changed)render();
+      if(displayMode){setProjectionConnection('✓ 已連線，跟隨手機主持人');return}
       if(!completeGuest()&&!data.admin&&!hostMode)selectPanel('checkin');
       else if(!wasComplete&&completeGuest()&&$('checkin').classList.contains('active'))go('home');
-    }catch(e){console.error(e);$('checkStatus').textContent='連線中斷，請稍後重新整理'}
+    }catch(e){console.error(e);if(displayMode)setProjectionConnection('連線中斷，正在重新連線…');else $('checkStatus').textContent='連線中斷，請稍後重新整理'}
   })();
   refreshPromise=reading.finally(()=>{refreshing=false;refreshPromise=null});
   return refreshPromise;
@@ -73,7 +76,7 @@ function refresh(afterAction=false){
 
 function authHeaders(){ const token=localStorage.getItem(TOKEN_KEY); return token?{'Authorization':'Bearer '+token}:{} }
 async function act(type,fields={},options={}){ try{ const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json',...authHeaders()},credentials:'same-origin',body:JSON.stringify({type,...fields})}); const result=await r.json(); if(!r.ok)throw Error(result.error||'操作失敗'); if(!options.skipRefresh)await refresh(true); return result; }catch(e){toast(e.message||'操作失敗');return null} }
-function go(t){document.body.classList.toggle('host-mode',t==='admin');if(t==='admin')hostMode=true; else if(t==='checkin')hostMode=false; if(!completeGuest()&&t!=='admin')t='checkin'; selectPanel(t);window.scrollTo({top:0,behavior:'smooth'});render() }
+function go(t){wakePoll();document.body.classList.toggle('host-mode',t==='admin');if(t==='admin')hostMode=true; else if(t==='checkin')hostMode=false; if(!completeGuest()&&t!=='admin')t='checkin'; selectPanel(t);window.scrollTo({top:0,behavior:'smooth'});render() }
 document.querySelectorAll('#tabs button').forEach(e=>e.addEventListener('click',()=>go(e.dataset.tab)));
 function requireGuest(){ if(completeGuest())return true;toast('請先完成姓名與頭像報到');go('checkin');return false }
 async function checkin(){
@@ -95,11 +98,11 @@ async function checkin(){
 async function sendBlessing(){ if(!requireGuest())return; const text=$('blessing').value.trim(); if(!text)return toast('請先寫下祝福'); if(await act('blessing',{text})){ $('blessing').value=''; toast('祝福送出成功 ♡') } }
 function spawnDanmu(txt,name,target,kind,value){const d=document.createElement('div');d.className='danmu';d.style.top=(10+Math.random()*75)+'%';d.innerHTML=avatarHTML(kind,value);d.append(document.createTextNode(name+'：'+txt));target.append(d);setTimeout(()=>d.remove(),31000)}
 function tickDanmu(){
-  const count=data.blessings.length;
+  const count=(data.blessings||[]).length;
   if(count&&!document.hidden){
     lastDanmu=(lastDanmu+1)%count;
     const b=data.blessings[lastDanmu];
-    spawnDanmu(b.text,b.name,$('wallPreview'),b.avatarKind,b.avatarValue);
+    if(!displayMode&&$('wall').classList.contains('active'))spawnDanmu(b.text,b.name,$('wallPreview'),b.avatarKind,b.avatarValue);
     if(projection==='wall')spawnDanmu(b.text,b.name,$('projWall'),b.avatarKind,b.avatarValue);
   }
   setTimeout(tickDanmu,count===1?34000:count===2?17000:count===3?11000:8500);
@@ -208,9 +211,36 @@ function renderMahjongProjection(){
   target.dataset.mahjongPhase=phase;
   target.innerHTML='<div class="mahjong-display" role="status" aria-live="polite"><div class="mahjong-tag">'+view.tag+'</div><div class="mahjong-tiles" aria-hidden="true"><span class="mahjong-tile mahjong-back"></span><span class="mahjong-tile mahjong-main">'+view.symbol+'</span><span class="mahjong-tile mahjong-back"></span></div><h2>'+view.title+'</h2><p class="mahjong-line">'+view.line+'</p><p class="mahjong-hint">'+view.hint+'</p><div class="mahjong-signature">宇童 ♡ 懷筑 · 2026.12.12</div></div>';
 }
-function openProjection(type){document.body.classList.add('projecting');projection=type;$('projector').classList.add('show');renderProjection()}
+function openProjection(type){wakePoll();document.body.classList.add('projecting');projection=type;$('projector').classList.add('show');renderProjection()}
 function closeProjection(){document.body.classList.remove('projecting');projection='';$('projector').classList.remove('show');$('projWall').innerHTML=''}
-function renderProjection(){if(!projection)return;$('projector').dataset.mode=projection;if(projection==='mahjong'){$('projTitle').textContent='摸麻將挑戰';$('projWall').style.display='none';$('projBalls').innerHTML='';renderMahjongProjection();return}delete $('projMessage').dataset.mahjongPhase;$('projWall').style.display=projection==='wall'?'block':'none';$('projTitle').textContent=({wall:'幸福祝福牆',lotto:'幸福大樂透',kahoot:'Kahoot! 參賽入口'})[projection];setHTML('projBalls',projection==='lotto'?ballHTML():'');if(projection==='lotto')$('projMessage').textContent=drawCount()===6?'恭喜 '+(data.lottery.winners||[]).join('、')+'！':lotteryLabel();else if(projection==='kahoot'){const config=kahootSettings();$('projMessage').innerHTML='<div class="kahoot-projection"><span class="kahoot-mark">K!</span><h2>一起加入 Kahoot! 婚禮挑戰</h2><p>從婚禮網站點「前往 Kahoot!」</p><p class="kahoot-pin">'+(config.pin?'Game PIN：'+config.pin:'請依主持人指示輸入 PIN')+'</p><a class="primary kahoot-link" target="_blank" rel="noopener noreferrer" href="'+escapeHTML(config.url)+'">前往 Kahoot! ↗</a><p class="small">題目與排行榜請看接下來的 Kahoot! 主持畫面</p></div>'}else $('projMessage').textContent='讓祝福飛向宇童與懷筑 ♡'}
+function renderProjection(){if(!projection)return;$('projector').dataset.mode=projection;if(projection==='mahjong'){$('projTitle').textContent='摸麻將挑戰';$('projWall').style.display='none';setHTML('projBalls','');renderMahjongProjection();return}delete $('projMessage').dataset.mahjongPhase;$('projWall').style.display=projection==='wall'?'block':'none';$('projTitle').textContent=({wall:'幸福祝福牆',lotto:'幸福大樂透',kahoot:'Kahoot! 參賽入口'})[projection];setHTML('projBalls',projection==='lotto'?ballHTML():'');if(projection==='lotto')$('projMessage').textContent=drawCount()===6?'恭喜 '+(data.lottery.winners||[]).join('、')+'！':lotteryLabel();else if(projection==='kahoot'){const config=kahootSettings();$('projMessage').innerHTML='<div class="kahoot-projection"><span class="kahoot-mark">K!</span><h2>一起加入 Kahoot! 婚禮挑戰</h2><p>從婚禮網站點「前往 Kahoot!」</p><p class="kahoot-pin">'+(config.pin?'Game PIN：'+config.pin:'請依主持人指示輸入 PIN')+'</p><a class="primary kahoot-link" target="_blank" rel="noopener noreferrer" href="'+escapeHTML(config.url)+'">前往 Kahoot! ↗</a><p class="small">題目與排行榜請看接下來的 Kahoot! 主持畫面</p></div>'}else $('projMessage').textContent='讓祝福飛向宇童與懷筑 ♡'}
+let catProjectionFrame=null,catFrameActive=false;
+function sharedProjectionUrl(){return new URL('/wedding_1212?display=1',location.href).href}
+function openSharedProjection(){window.open(sharedProjectionUrl(),'wedding-shared-projection')}
+async function copySharedProjection(){try{await navigator.clipboard.writeText(sharedProjectionUrl());toast('已複製，請在投影電腦開啟。')}catch{prompt('複製這個網址，在投影電腦開啟：',sharedProjectionUrl())}}
+async function showOnScreen(mode){if(await act('projectionMode',{mode}))toast('已切換現場投影')}
+function setProjectionConnection(message){
+  let status=$('projectionConnection');
+  if(!status){status=document.createElement('div');status.id='projectionConnection';status.setAttribute('role','status');document.body.append(status)}
+  status.textContent=message;
+}
+function renderSharedProjection(){
+  const mode=['mahjong','cat','lotto','wall','kahoot'].includes(data.projection?.mode)?data.projection.mode:'waiting';
+  document.body.classList.add('projecting');$('projector').classList.add('show');
+  if(mode==='cat'&&!catProjectionFrame){
+    catProjectionFrame=document.createElement('iframe');catProjectionFrame.id='catProjectionFrame';catProjectionFrame.title='小貓迷因現場投影';
+    catProjectionFrame.allow='autoplay; fullscreen';catProjectionFrame.src='/cat-memes.html?screen=1&cloud=1&follow=1&embedded=1&v=20261020-sync2';
+    catProjectionFrame.onload=()=>catProjectionFrame.contentWindow?.postMessage({type:'wedding-projection-visible',active:catFrameActive},location.origin);
+    $('projector').append(catProjectionFrame);
+  }
+  const active=mode==='cat';
+  if(catProjectionFrame){catProjectionFrame.style.display=active?'block':'none';if(active!==catFrameActive)catProjectionFrame.contentWindow?.postMessage({type:'wedding-projection-visible',active},location.origin)}
+  catFrameActive=active;
+  if(active){projection='cat';$('projector').dataset.mode='cat';return}
+  projection=mode;
+  if(mode==='waiting'){$('projector').dataset.mode='waiting';$('projTitle').textContent='幸福婚禮互動';$('projWall').style.display='none';setHTML('projBalls','');delete $('projMessage').dataset.mahjongPhase;$('projMessage').innerHTML='<h2>等待主持人開始活動</h2><p>手機開啟主持人後台，即可切換現場畫面。</p>';return}
+  renderProjection();
+}
 function renderProfileForm(me){
   const input=$('guestName');
   if(profileNameDraft===null)input.value=me?.name||'';
@@ -232,8 +262,20 @@ function renderLotteryControls(){
   const message=status==='open'?'現在開放賓客選號。確認大家投完後，按「② 截止選號」。':status==='closed'?(count?'選號已截止，共 '+count+' 張有效彩券。按「③ 開始開獎」。':'選號已截止，目前沒有彩券。請重新開放選號，等至少一位賓客投注。'):'本輪已開獎。要再次進行，請按「重開新一輪」，舊彩券會清空。';
   $('hostLottoStats').innerHTML='<strong>'+lotteryLabel()+'｜'+count+' 張彩券</strong><span>'+message+'</span>';
 }
-function render(){const me=data.me;document.body.classList.toggle('needs-checkin',!completeGuest()&&!data.admin);$('checkStatus').textContent=completeGuest()?'✔ '+me.name+'，你已完成報到！':me?'已記下你的姓名，請再選好頭像完成報到。':'請先輸入姓名並選擇頭像。';renderProfileForm(me);$('navProfile').classList.toggle('visible',completeGuest());setHTML('navProfile',completeGuest()?avatarHTML(me.avatarKind,me.avatarValue)+escapeHTML(me.name):'');renderAvatarSelection();$('lottoStatus').textContent=lotteryLabel();$('lottoSelection').classList.toggle('hidden',!!data.myTicket||data.lottery.status!=='open');setHTML('myTicket',data.myTicket?'您的幸運號碼：<strong>'+data.myTicket.numbers.map(n=>String(n).padStart(2,'0')).join(' · ')+'</strong>':(!me?'報到後才能參與投注。':''));renderNumbers();setHTML('drawBalls',ballHTML());$('drawStatus').textContent=lotteryLabel();setHTML('winners',drawCount()===6&&data.lottery.winners?.length?'<h3>🎉 六碼全中：'+data.lottery.winners.map(escapeHTML).join('、')+'</h3>':'');setHTML('photoGrid',data.photos.length?photoCards(data.admin):'<p class="muted">還沒有照片，成為第一位分享的人！</p>');setHTML('blessingList',data.blessings.slice().reverse().map(b=>'<div class="qaItem"><span class="blessing-author">'+avatarHTML(b.avatarKind,b.avatarValue)+'<strong>'+escapeHTML(b.name)+'</strong></span>：'+escapeHTML(b.text)+'</div>').join('')||'<p class="muted">還沒有留言，快送上第一份祝福。</p>');renderKahoot();$('adminLogin').classList.toggle('hidden',data.admin);$('adminDashboard').classList.toggle('hidden',!data.admin);if(data.admin){setHTML('stats','<p>🎟 已報到：<b>'+data.guests.length+'</b> 位　｜　📸 照片：<b>'+data.photos.length+'</b> 張　｜　💗 祝福：<b>'+data.blessings.length+'</b> 則　｜　🎱 彩券：<b>'+data.tickets.length+'</b> 張</p>');setHTML('attendees','<h3>報到名單</h3>'+data.guests.map(g=>'<span class="pill" style="margin:3px">'+avatarHTML(g.avatarKind,g.avatarValue)+escapeHTML(g.name)+'</span>').join(''));renderMahjongControls();renderLotteryControls();renderProxyControls();setHTML('ticketList',data.tickets.map(t=>'<div class="qaItem">'+escapeHTML(t.name)+'：'+t.numbers.join('、')+'</div>').join('')||'<p class="muted">尚無投注</p>');setHTML('manageBlessings',data.blessings.map(b=>'<div class="qaItem">'+avatarHTML(b.avatarKind,b.avatarValue)+escapeHTML(b.name)+'：'+escapeHTML(b.text)+' <button class="outline" onclick="removeBlessing(\''+b.id+'\')">刪除</button></div>').join('')||'目前無留言');setHTML('managePhotos',photoCards(true)||'目前無照片')}renderProjection()}
+function render(){if(displayMode){renderSharedProjection();return}const me=data.me;document.body.classList.toggle('needs-checkin',!completeGuest()&&!data.admin);$('checkStatus').textContent=completeGuest()?'✔ '+me.name+'，你已完成報到！':me?'已記下你的姓名，請再選好頭像完成報到。':'請先輸入姓名並選擇頭像。';renderProfileForm(me);$('navProfile').classList.toggle('visible',completeGuest());setHTML('navProfile',completeGuest()?avatarHTML(me.avatarKind,me.avatarValue)+escapeHTML(me.name):'');renderAvatarSelection();$('lottoStatus').textContent=lotteryLabel();$('lottoSelection').classList.toggle('hidden',!!data.myTicket||data.lottery.status!=='open');setHTML('myTicket',data.myTicket?'您的幸運號碼：<strong>'+data.myTicket.numbers.map(n=>String(n).padStart(2,'0')).join(' · ')+'</strong>':(!me?'報到後才能參與投注。':''));renderNumbers();setHTML('drawBalls',ballHTML());$('drawStatus').textContent=lotteryLabel();setHTML('winners',drawCount()===6&&data.lottery.winners?.length?'<h3>🎉 六碼全中：'+data.lottery.winners.map(escapeHTML).join('、')+'</h3>':'');setHTML('photoGrid',data.photos.length?photoCards(data.admin):'<p class="muted">還沒有照片，成為第一位分享的人！</p>');setHTML('blessingList',data.blessings.slice().reverse().map(b=>'<div class="qaItem"><span class="blessing-author">'+avatarHTML(b.avatarKind,b.avatarValue)+'<strong>'+escapeHTML(b.name)+'</strong></span>：'+escapeHTML(b.text)+'</div>').join('')||'<p class="muted">還沒有留言，快送上第一份祝福。</p>');renderKahoot();$('adminLogin').classList.toggle('hidden',data.admin);$('adminDashboard').classList.toggle('hidden',!data.admin);if(data.admin){setHTML('stats','<p>🎟 已報到：<b>'+data.guests.length+'</b> 位　｜　📸 照片：<b>'+data.photos.length+'</b> 張　｜　💗 祝福：<b>'+data.blessings.length+'</b> 則　｜　🎱 彩券：<b>'+data.tickets.length+'</b> 張</p>');setHTML('attendees','<h3>報到名單</h3>'+data.guests.map(g=>'<span class="pill" style="margin:3px">'+avatarHTML(g.avatarKind,g.avatarValue)+escapeHTML(g.name)+'</span>').join(''));renderMahjongControls();renderLotteryControls();renderProxyControls();setHTML('ticketList',data.tickets.map(t=>'<div class="qaItem">'+escapeHTML(t.name)+'：'+t.numbers.join('、')+'</div>').join('')||'<p class="muted">尚無投注</p>');setHTML('manageBlessings',data.blessings.map(b=>'<div class="qaItem">'+avatarHTML(b.avatarKind,b.avatarValue)+escapeHTML(b.name)+'：'+escapeHTML(b.text)+' <button class="outline" onclick="removeBlessing(\''+b.id+'\')">刪除</button></div>').join('')||'目前無留言');setHTML('managePhotos',photoCards(true)||'目前無照片')}renderProjection()}
 setInterval(()=>{if(data.lottery.status==='drawn'&&drawCount()<6){setHTML('drawBalls',ballHTML());$('drawStatus').textContent=lotteryLabel();$('lottoStatus').textContent=lotteryLabel();if(drawCount()===6)render()}if(projection==='lotto')renderProjection()},250);
-async function poll(){await refresh();const interval=document.hidden?120000:(projection||hostMode?3000:$('games').classList.contains('active')?5000:$('wall').classList.contains('active')?10000:60000);setTimeout(poll,interval)}
-if(new URLSearchParams(location.search).get('host')==='1')go('admin');
-window.addEventListener('focus',refresh);poll();
+function pollDelay(){if(document.hidden)return displayMode?10000:120000;return displayMode||projection||hostMode?1000:$('games').classList.contains('active')?3000:$('wall').classList.contains('active')?8000:60000}
+async function poll(){
+  if(pollRunning)return;
+  pollRunning=true;
+  try{await refresh()}finally{pollRunning=false;clearTimeout(pollTimer);const delay=pollWake?0:pollDelay();pollWake=false;pollTimer=setTimeout(poll,delay)}
+}
+function wakePoll(){if(!pollStarted)return;clearTimeout(pollTimer);if(pollRunning){pollWake=true;return}void poll()}
+function startPage(){
+  if(displayMode){document.body.classList.add('display-mode');renderSharedProjection()}
+  else if(new URLSearchParams(location.search).get('host')==='1')go('admin');
+  window.addEventListener('focus',wakePoll);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)wakePoll()});
+  pollStarted=true;void poll();
+}
+startPage();

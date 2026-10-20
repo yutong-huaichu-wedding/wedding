@@ -1,4 +1,4 @@
-import { bad, good, isAdmin, sameOrigin, setting, db, bucket } from './wedding';
+import { bad, good, isAdmin, sameOrigin, setting, db, bucket, setSetting } from './wedding';
 
 const roomPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const mediaPattern = /^\/api\/cat-media\/[0-9a-f]{64}$/;
@@ -31,7 +31,13 @@ export function validProjection(value: unknown): value is ProjectionState {
 }
 export async function catLive(request: Request) {
   try {
-    const url = new URL(request.url), room = url.searchParams.get('session') || '';
+    const url = new URL(request.url);
+    let room = url.searchParams.get('session') || '';
+    if (request.method === 'GET' && url.searchParams.get('follow') === '1') {
+      const active = await setting('projection', { mode: 'waiting', session: '' });
+      if (active.mode !== 'cat' || !roomPattern.test(active.session || '')) return good({ ...empty, active: false, serverNow: Date.now() });
+      room = active.session;
+    }
     if (!roomPattern.test(room)) return bad('投影連結不完整，請重新複製', 400);
     const key = roomKey(room), time = Date.now();
     if (request.method === 'GET') {
@@ -40,7 +46,7 @@ export async function catLive(request: Request) {
         "UPDATE settings SET value=json_set(value,'$.screenAt',?) WHERE key=? AND COALESCE(json_extract(value,'$.screenAt'),0)<?"
       ).bind(time, key, time - 5000).run();
       const value = await setting(key, empty);
-      return good(time - value.updatedAt > 86400000 ? empty : value);
+      return good({ ...(time - value.updatedAt > 86400000 ? empty : value), session: room, active: true, serverNow: time });
     }
     if (!sameOrigin(request)) return bad('來源不符', 403);
     if (!await isAdmin(request)) return bad('請先在這支手機登入婚禮主持人控制台，再回來啟用同步', 401);
@@ -61,6 +67,7 @@ export async function catLive(request: Request) {
       ON CONFLICT(key) DO UPDATE SET value=json_set(settings.value,'$.revision',?,'$.state',json(?),
         '$.playAt',CASE WHEN ? THEN ? ELSE COALESCE(json_extract(settings.value,'$.playAt'),0) END,'$.updatedAt',?)`
     ).bind(key, revision, JSON.stringify(state), body.autoplay ? time : 0, time, revision, JSON.stringify(state), body.autoplay ? 1 : 0, time, time).run();
+    await setSetting('projection', { mode: 'cat', session: room });
     return good({ ok: true, revision });
   } catch (error) { console.error(error); return bad('投影同步暫時中斷，將自動重連', 500); }
 }
