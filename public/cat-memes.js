@@ -1,25 +1,32 @@
+import {createCloudProjection} from './cat-cloud.js';
 import {ready,validateMedia,validateDeck,projectionState,packDeck,unpackDeck,moveCatQuestion} from './cat-meme-model.js';
 import {createCatMemeDeck,mergeCatMemeDeck,catMemeQuestions,upgradeCatMemeSounds,applyFinalCatMemeDeck} from './cat-meme-questions.js';
 const $=id=>document.getElementById(id);
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const params=new URLSearchParams(location.search),screenMode=params.get('screen')==='1';
-const session=params.get('session')||crypto.randomUUID();
+let session=params.get('session');
+if(!session){try{session=sessionStorage.getItem('wedding-cat-room')}catch{}}
+if(!session||!/^[0-9a-f-]{36}$/i.test(session))session=crypto.randomUUID();
+try{if(!screenMode)sessionStorage.setItem('wedding-cat-room',session)}catch{}
+const cloudScreen=screenMode&&params.get('cloud')==='1';
+let cloud=null;
+function projectionUrl(){const url=new URL(location.href);url.search='?screen=1&cloud=1&session='+encodeURIComponent(session);return url.href} 
 const channel=typeof BroadcastChannel!=='undefined'?new BroadcastChannel('wedding-cat-memes:'+session):null;
 let orderSaving=false,pendingOrder=null;
-let deck=[],index=0,revealed=false,editingId=null,dirty=false,busy=false,dbPromise=null,noticeTimer,lastScreenAt=0,lastHostAt=Date.now(),playSerial=0,lastPlayed=-1,lastStageKey='',liveState=null;
-let editorVideoUrl=null;
+let deck=[],index=0,revealed=false,editingId=null,dirty=false,busy=false,dbPromise=null,noticeTimer,lastScreenAt=0,lastHostAt=Date.now(),playSerial=Date.now(),lastPlayed=-1,lastStageKey='',liveState=null;
+let editorVideoUrl=null,editorImageUrl=null;
 const urls=new Set(),blobUrls=new WeakMap();
 const src=blob=>{if(!blobUrls.has(blob)){const url=URL.createObjectURL(blob);blobUrls.set(blob,url);urls.add(url)}return blobUrls.get(blob)};
 function notice(text){$('notice').textContent=text;$('notice').style.display='block';clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('notice').style.display='none',5000)}
 function current(){return deck[index]||null}
-function connected(){return Date.now()-lastScreenAt<6500}
+function connected(){return !!cloud?.enabled||Date.now()-lastScreenAt<6500}
 function stopSound(){for(const player of [$('soundPlayer'),$('picture').querySelector('video')])if(player){player.pause();player.removeAttribute('src');player.load();if(player.id==='soundPlayer')player.hidden=true}}
 async function playSound(state=liveState,audioOnly=false){
   if(!state?.revealed)return;
   const video=audioOnly?null:$('picture').querySelector('video');
   const player=video||$('soundPlayer'),media=state.answerMediaType?.startsWith('video/')?state.answerMedia:!state.answerMedia&&state.soundType?.startsWith('video/')?state.sound:'';
   if(!media)return;
-  player.pause();player.src=media;player.volume=state.volume??.8;player.currentTime=0;player.controls=!!video;player.hidden=false;if(!video)player.hidden=true;
+  player.pause();player.src=media;player.volume=state.volume??.8;player.currentTime=0;player.controls=false;player.hidden=false;if(!video)player.hidden=true;
   $('playbackStatus').textContent=video?'正在播放有聲答案影片…':'正在試聽影片聲音…';
   try{await player.play()}catch{$('playbackStatus').textContent='尚未播放：請按「再播一次」，並確認檔案可播放與喇叭已開。'}
 }
@@ -35,10 +42,12 @@ function renderStage(state,autoplay=false){
   const visualKey=key+'|'+visual;
   if(picture.dataset.src!==visualKey){
     picture.dataset.src=visualKey;
-    picture.innerHTML=visual?(video?'<video playsinline controls preload="metadata" aria-label="答案影片"></video>':'<img alt="'+(state.revealed?'答案動圖':'請看這隻貓，舉手模仿牠的聲音')+'">'):'<div class="placeholder"><span>🐱</span><p>先在題庫放上貓咪照片</p></div>';
+    const persistentPlayer=$('soundPlayer');
+    if(picture.contains(persistentPlayer))$('answerBox').append(persistentPlayer);
+    picture.innerHTML=visual?(video?'':'<img alt="'+(state.revealed?'答案動圖':'請看這隻貓的照片或動圖，舉手模仿牠的聲音')+'">'):'<div class="placeholder"><span>🐱</span><p>先在題庫放上貓咪照片</p></div>';
+    if(video){picture.append(persistentPlayer);persistentPlayer.hidden=false;persistentPlayer.controls=false;persistentPlayer.setAttribute('aria-label','答案影片')}
     if(visual){
       const element=picture.querySelector(video?'video':'img');
-      if(!state.revealed)element.onload=()=>{if(picture.dataset.src!==visualKey)return;const canvas=document.createElement('canvas');canvas.width=element.naturalWidth;canvas.height=element.naturalHeight;canvas.setAttribute('role','img');canvas.setAttribute('aria-label','題目照片');canvas.getContext('2d').drawImage(element,0,0);element.replaceWith(canvas)};
       element.onerror=()=>{$('playbackStatus').textContent='答案素材無法播放，請在編輯區重新選擇影片或動圖。'};
       element.src=visual;
     }
@@ -57,14 +66,15 @@ function publish(autoplay=false){
   const state={...projectionState(q,index,deck.length,revealed,src),key:q?.id||'empty',serial:playSerial,volume:Number($('volume').value)};
   renderStage(state,autoplay&&!connected());
   channel?.postMessage({type:'state',state,autoplay});
+  cloud?.publish({q,index,total:deck.length,revealed,serial:playSerial,volume:state.volume,autoplay});
 }
 function renderDeck(){
-  $('deck').innerHTML=deck.length?deck.map((q,i)=>'<article class="deck-row '+(i===index?'active':'')+'">'+(q.image?'<img alt="" src="'+src(q.image)+'">':'<span class="deck-thumb">🐱</span>')+'<div class="deck-info"><strong>'+String(i+1).padStart(2,'0')+' · '+escape(q.name)+'</strong><small>'+(ready(q)?'✓ 照片與有聲影片都準備好了':'待補：'+[!q.image?'照片':'',!(q.answerMedia?.type.startsWith('video/')||(!q.answerMedia&&q.sound?.type.startsWith('video/')))?'有聲答案影片':''].filter(Boolean).join('、'))+'</small></div><div class="deck-actions"><div class="deck-move"><button type="button" data-move="'+escape(q.id)+'" data-direction="-1" aria-label="上移 '+escape(q.name)+'" '+(i===0||busy?'disabled':'')+'>↑ 上移</button><button type="button" data-move="'+escape(q.id)+'" data-direction="1" aria-label="下移 '+escape(q.name)+'" '+(i===deck.length-1||busy?'disabled':'')+'>↓ 下移</button></div><div><button type="button" data-edit="'+escape(q.id)+'">編輯／換影片</button><button type="button" data-show="'+i+'">出題</button></div></div></article>').join(''):'<p class="small">還沒有題目，從右邊新增第一隻貓吧。</p>';
+  $('deck').innerHTML=deck.length?deck.map((q,i)=>'<article class="deck-row '+(i===index?'active':'')+'">'+(q.image?'<img alt="" src="'+src(q.image)+'">':'<span class="deck-thumb">🐱</span>')+'<div class="deck-info"><strong>'+String(i+1).padStart(2,'0')+' · '+escape(q.name)+'</strong><small>'+(ready(q)?'✓ 照片與有聲影片都準備好了':'待補：'+[!q.image?'照片':'',!(q.answerMedia?.type.startsWith('video/')||(!q.answerMedia&&q.sound?.type.startsWith('video/')))?'有聲答案影片':''].filter(Boolean).join('、'))+'</small></div><div class="deck-actions"><div class="deck-move"><button type="button" data-move="'+escape(q.id)+'" data-direction="-1" aria-label="上移 '+escape(q.name)+'" '+(i===0||busy?'disabled':'')+'>↑ 上移</button><button type="button" data-move="'+escape(q.id)+'" data-direction="1" aria-label="下移 '+escape(q.name)+'" '+(i===deck.length-1||busy?'disabled':'')+'>↓ 下移</button></div><div><button type="button" data-edit="'+escape(q.id)+'">編輯／換素材</button><button type="button" data-show="'+i+'">出題</button></div></div></article>').join(''):'<p class="small">還沒有題目，從右邊新增第一隻貓吧。</p>';
   for(const id of ['saveMeme','exportDeck','addNew','loadStarter','importDeck'])$(id).disabled=busy||orderSaving;
   $('deleteMeme').disabled=busy||orderSaving||!editingId;
   const q=current();
   $('hostQuestionName').textContent=q?.name||'請先準備題目';
-  $('hostReadiness').textContent=q?(ready(q)?'照片與有聲影片就緒，可以出題。':'請先補齊照片與有聲答案影片。'):'新增題目後就能開始。';
+  $('hostReadiness').textContent=q?(ready(q)?'照片／動圖與有聲影片就緒，可以出題。':'請先補齊照片與有聲答案影片。'):'新增題目後就能開始。';
   $('reveal').disabled=!ready(q)||revealed||busy;
   $('hideAnswer').disabled=!q||busy;
   $('previous').disabled=index<=0||busy;
@@ -76,11 +86,21 @@ function fillEditor(q=null){
   editingId=q?.id||null;dirty=false;$('editor').reset();
   $('editorTitle').textContent=q?'編輯這隻貓':'新增一隻貓';
   $('memeName').value=q?.name||'';$('memePrompt').value=q?.prompt||'這隻貓，怎麼叫？';$('memeAnswer').value=q?.answer||'';$('memeNote').value=q?.note||'';
-  $('imageHint').textContent=q?.image?'✓ 已有照片；不選新檔案即可保留。':'JPG、PNG、WebP、GIF，8MB 以下';
+  $('imageHint').textContent=q?.image?'✓ 已有照片／動圖；不選新檔案即可保留。':'可自行上傳 GIF、動畫 WebP 或照片，8MB 以下';
   $('answerMediaHint').textContent=q?.answerMedia?.type.startsWith('video/')?'✓ 已有影片；選新檔案即可替換。':q?.answerMedia||q?.sound?'舊題目仍是分開的畫面與聲音，請換成一支有聲影片。':'請選 MP4 或 WebM 有聲影片，50MB 以下。';
   $('removeAnswerMedia').disabled=!(q?.answerMedia||q?.sound);
-  updateEditorVideo();
+  updateEditorImage();updateEditorVideo();
   $('deleteMeme').disabled=busy||orderSaving||!q;$('editStatus').textContent='儲存後保留在這台電腦；記得匯出題庫備份。';
+}
+function updateEditorImage(){
+  const image=$('editorImage');image.removeAttribute('src');image.hidden=true;
+  if(editorImageUrl){URL.revokeObjectURL(editorImageUrl);editorImageUrl=null}
+  const file=$('memeImage').files[0],q=deck.find(item=>item.id===editingId),media=file||q?.image;
+  if(!media){$('editorImageStatus').textContent='尚未選擇題目照片或動圖。';return}
+  try{validateMedia(media,'image')}catch(error){$('editorImageStatus').textContent=error.message;return}
+  editorImageUrl=URL.createObjectURL(media);image.src=editorImageUrl;image.hidden=false;
+  $('editorImageStatus').textContent=(file?'新選的題目素材':'目前題目素材')+' · '+(media.type==='image/gif'?'GIF 動圖':'照片／WebP，可保留動畫')+'；出題時會保留原始動畫，不播放聲音。';
+  image.onerror=()=>{$('editorImageStatus').textContent='無法預覽，請換一個 GIF、WebP 或圖片檔。'};
 }
 function updateEditorVideo(){
   const player=$('editorVideo');player.onloadedmetadata=null;player.onerror=null;player.pause();player.removeAttribute('src');player.load();
@@ -160,10 +180,14 @@ $('soundPlayer').addEventListener('error',()=>{if($('soundPlayer').getAttribute(
 $('replay').addEventListener('click',()=>{if(screenMode)void playSound();else{playSerial++;publish(true)}});
 if(channel)channel.onmessage=event=>{
   const m=event.data;if(!m||typeof m!=='object')return;
-  if(screenMode&&m.type==='state'&&m.state){lastHostAt=Date.now();renderStage(m.state,m.autoplay);}
+  if(screenMode&&!cloudScreen&&m.type==='state'&&m.state){lastHostAt=Date.now();renderStage(m.state,m.autoplay);}
   else if(screenMode&&m.type==='alive')lastHostAt=Date.now();
-  else if(!screenMode&&(m.type==='ready'||m.type==='heartbeat')){lastScreenAt=Date.now();$('screenStatus').textContent='✓ 投影已連接。請在投影畫面先按「啟用投影音效」。';channel.postMessage({type:'alive'});if(m.type==='ready'){stopSound();publish(false)}}
+  else if(!screenMode&&(m.type==='ready'||m.type==='heartbeat')){lastScreenAt=Date.now();$('screenStatus').textContent='✓ 投影已連接。請在投影畫面先按「啟用投影音效」。';channel.postMessage({type:'alive'});if(m.type==='ready'){stopSound();if(!cloud?.enabled)publish(false)}}
 };
+cloud=createCloudProjection({session,screen:cloudScreen,onState:(state,autoplay)=>{lastHostAt=Date.now();renderStage(state,autoplay)},onStatus:status=>{
+  const target=screenMode?$('unlockStatus'):$('screenStatus');target.textContent=status.message;
+  if(!screenMode)$('cloudStatus').textContent=status.message;
+}});
 if(screenMode){
   document.body.classList.add('screen-mode');
   $('unlockSound').onclick=async()=>{
@@ -173,11 +197,19 @@ if(screenMode){
     if(document.fullscreenEnabled&&!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});
   };
   renderStage({key:'empty',index:0,total:0,revealed:false,image:''});
-  channel?.postMessage({type:'ready'});
-  setInterval(()=>{channel?.postMessage({type:'heartbeat'});if(Date.now()-lastHostAt>7000)$('unlockStatus').textContent='主持人頁面尚未連接，請保持主持人頁面開啟。'},2500);
+  if(cloudScreen)cloud.start();else channel?.postMessage({type:'ready'});
+  setInterval(()=>{if(!cloudScreen)channel?.postMessage({type:'heartbeat'});if(!cloudScreen&&Date.now()-lastHostAt>7000)$('unlockStatus').textContent='主持人頁面尚未連接，請保持主持人頁面開啟。'},2500);
 }else{
+  $('projectionLink').value=projectionUrl();
+  $('enableCloud').onclick=async()=>{
+    $('enableCloud').disabled=true;
+    try{await cloud.enable();stopSound();$('enableCloud').textContent='✓ 手機同步已啟用';$('openScreen').textContent='↗ 開啟雲端投影';publish(false);notice('同步已啟用，將投影連結傳到電腦開啟。請保持手機頁面在前景。')}
+    catch(error){$('cloudStatus').textContent=error.message;$('enableCloud').disabled=false}
+  };
+  $('copyProjection').onclick=async()=>{try{await navigator.clipboard.writeText(projectionUrl());notice('投影連結已複製，請貼到電腦瀏覽器開啟。')}catch{$('projectionLink').focus();$('projectionLink').select();notice('請長按或手動複製上方投影連結。')}};
   $('loadStarter').textContent='加入 '+catMemeQuestions.length+' 題迷因題庫';$('loadStarter').onclick=addStarterDeck;
   $('editor').addEventListener('input',()=>{dirty=true});$('editor').addEventListener('change',()=>{dirty=true});$('editor').addEventListener('submit',saveEditor);
+  $('memeImage').addEventListener('change',updateEditorImage);
   $('memeAnswerMedia').addEventListener('change',()=>{$('removeAnswerMedia').checked=false;updateEditorVideo()});
   $('removeAnswerMedia').addEventListener('change',()=>{if($('removeAnswerMedia').checked)$('memeAnswerMedia').value='';updateEditorVideo()});
   $('deleteMeme').onclick=deleteQuestion;$('exportDeck').onclick=exportBackup;$('importDeck').onchange=importBackup;
@@ -188,7 +220,8 @@ if(screenMode){
   $('volume').oninput=()=>publish(false);
   $('soundCheck').onclick=()=>{const q=current();if(!ready(q))return;void playSound({...projectionState(q,index,deck.length,true,src),volume:Number($('volume').value)},true);notice('正在主持人這台電腦試聽影片聲音，投影畫面不會公布答案。')};
   $('openScreen').onclick=()=>{
-    if(!channel)return notice('此瀏覽器不支援獨立投影，請改用新版 Chrome、Edge 或 Safari。');
+    if(cloud.enabled){window.open(projectionUrl(),'cat-cloud-'+session);return}
+    if(!channel)return notice('此瀏覽器不支援獨立投影，請先啟用手機跨裝置同步。');
     const screenUrl=new URL(location.href);screenUrl.search='?screen=1&session='+encodeURIComponent(session);const target=window.open(screenUrl.href,'cat-memes-'+session);
     if(!target)notice('投影視窗未開啟，請允許這個網站開啟新視窗。');else notice('將新視窗移到現場螢幕，再按「啟用投影音效」。');
   };
@@ -196,4 +229,6 @@ if(screenMode){
   (async()=>{setBusy(true);try{const saved=await loadDeck(),revision=await loadDeckRevision(),incoming=await starterDeck();if(saved===undefined){await storeDeck(incoming);await storeDeckRevision()}else if(revision!=='2026-10-15-final-nine'){await storeDeck(applyFinalCatMemeDeck(validateDeck(saved),incoming));await storeDeckRevision();notice('已套用最新 9 題及指定照片、影片。')}else {deck=validateDeck(saved);const updated=await upgradeCatMemeSounds(deck,incoming);if(updated!==deck){await storeDeck(updated);notice('內建題目已改用有聲影片，自訂素材與題目順序均已保留。')}}fillEditor(current());renderDeck();publish();}catch{deck=[];fillEditor();renderDeck();publish();$('storageStatus').textContent='無法讀取保存的題庫，請勿清除瀏覽器資料；可先重新整理，或匯入先前備份。';notice('題庫未能讀取，請重新整理或匯入備份。')}finally{setBusy(false)}})();
 }
 window.addEventListener('beforeunload',event=>{if(!screenMode&&(dirty||busy||orderSaving)){event.preventDefault();event.returnValue=''}});
-window.addEventListener('pagehide',()=>{stopSound();channel?.close();if(editorVideoUrl)URL.revokeObjectURL(editorVideoUrl);for(const url of urls)URL.revokeObjectURL(url)});
+window.addEventListener('pagehide',()=>{cloud?.close();stopSound();channel?.close();if(editorImageUrl)URL.revokeObjectURL(editorImageUrl);if(editorVideoUrl)URL.revokeObjectURL(editorVideoUrl);for(const url of urls)URL.revokeObjectURL(url)});
+
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&cloud?.enabled&&!screenMode)publish(false)});

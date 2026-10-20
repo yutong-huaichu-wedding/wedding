@@ -24,6 +24,12 @@ export const sessionCookie = (request: Request, token: string, maxAge: number) =
 export const validNumbers = (value: unknown): value is number[] => Array.isArray(value) && value.length === 6 && value.every(n => Number.isInteger(n) && n >= 1 && n <= 49) && new Set(value).size === 6;
 export const lotteryDefault = { status: 'open', result: [] as number[], startedAt: 0 };
 export const quizDefault = { index: -1, open: false };
+export const mahjongDefault = { phase: 'guess' };
+export const kahootDefault = { url: 'https://kahoot.it/', pin: '' };
+export function validKahootUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 1000) return null;
+  try { const url = new URL(value); return url.protocol === 'https:' && ['kahoot.it','www.kahoot.it'].includes(url.hostname) && !url.username && !url.password && (!url.port || url.port === '443') ? url.href : null; } catch { return null; }
+}
 export const avatarPresets = ['cat','rabbit','bear','panda','fox','chick','frog','penguin','dog','koala','hamster','tiger','lion','pig','monkey','owl','unicorn','butterfly','sunflower','cherry','heart','star','cake'];
 
 // Participation and each question's roster live in settings; no migration or data reset.
@@ -41,14 +47,16 @@ const closeCompletedQuiz = () => db().prepare(`
 export async function state(request: Request) {
   const admin = await isAdmin(request);
   const me = await guest(request);
-  const [blessings, photos, questions, tickets, guests, lotto, quiz] = await Promise.all([
+  const [blessings, photos, questions, tickets, guests, lotto, quiz, mahjong, kahoot] = await Promise.all([
     all('SELECT b.id,b.name,b.text,b.created_at AS time,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue FROM blessings b LEFT JOIN guests g ON g.id=b.guest_id ORDER BY b.created_at DESC LIMIT 150'),
     all('SELECT id,name,created_at AS time FROM photos ORDER BY created_at DESC LIMIT 150'),
     all('SELECT id,text,options,correct,position FROM questions ORDER BY position,id'),
     all('SELECT id,guest_id AS guestId,name,numbers,created_at AS time FROM tickets ORDER BY created_at'),
     admin ? all('SELECT id,name,avatar_kind AS avatarKind,avatar_value AS avatarValue,created_at AS time FROM guests ORDER BY created_at') : Promise.resolve([]),
     setting('lottery', lotteryDefault),
-    setting('quiz', quizDefault)
+    setting('quiz', quizDefault),
+    setting('mahjong', mahjongDefault),
+    setting('kahoot', kahootDefault)
   ]);
   const parsedTickets: Row[] = tickets.map(t => ({ ...t, numbers: JSON.parse(t.numbers) }));
   const result = Array.isArray(lotto.result) ? lotto.result : [];
@@ -64,6 +72,7 @@ export async function state(request: Request) {
   const myScore = me ? await first('SELECT COUNT(*) AS score FROM answers WHERE guest_id=? AND correct=1', me.id) : null;
   const scores = admin ? await all('SELECT g.name,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue,COUNT(a.id)*10 AS score FROM guests g JOIN answers a ON a.guest_id=g.id AND a.correct=1 GROUP BY g.id ORDER BY score DESC,g.created_at LIMIT 30') : [];
   return good({
+    mahjong, kahoot,
     admin, me: me ? { id: me.id, name: me.name, avatarKind: me.avatarKind, avatarValue: me.avatarValue } : null,
     blessings: blessings.reverse(), photos: photos.reverse().map(p => ({ ...p, url: '/api/photo/' + p.id })),
     lottery: { ...lotto, winners, ticketCount: parsedTickets.length },
@@ -190,6 +199,18 @@ export async function action(request: Request) {
     return good({ ok: true });
   }
   if (!admin) return bad('請先登入主持人控制台', 403);
+  if (type === 'kahootUpdate') {
+    const url = validKahootUrl(body.url), pin = typeof body.pin === 'string' ? body.pin.trim() : '';
+    if (!url) return bad('請貼上 https://kahoot.it/ 開頭的遊戲加入連結');
+    if (pin && !/^\d{4,10}$/.test(pin)) return bad('PIN 請填 4～10 位數字，或留空');
+    await setSetting('kahoot', { url, pin });
+    return good({ ok: true });
+  }
+  if (type === 'mahjongPhase') {
+    if (!['guess', 'correct', 'wrong'].includes(body.phase)) return bad('請選擇猜牌、答對或答錯畫面');
+    await setSetting('mahjong', { phase: body.phase });
+    return good({ ok: true });
+  }
   if (type === 'lottoState') {
     const status = body.status;
     if (status !== 'open' && status !== 'closed') return bad('狀態無效');
