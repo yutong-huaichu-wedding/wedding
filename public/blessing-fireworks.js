@@ -8,6 +8,7 @@
     const timers=new Set(),active=new Set();
     const MAX_PENDING=120,FLIGHT=2100,LAUNCH_GAP=420,BREAK=1400;
     let entries=[],priority=[],resume=[],known=new Set(),cursor=0,slots=[],pending=0,wave=0;
+    let inspecting=false;
     let wanted=false,running=false,paused=false,autoTimer=null,pumpTimer=null,resizeTimer=null,lastLaunch=-Infinity,restUntil=0;
     const node=(tag,className,text)=>{const e=doc.createElement(tag);e.className=className;if(text!==undefined)e.textContent=text;return e};
     const root=node('section','fireworks-scene fireworks-garden');root.setAttribute('aria-label','海上的祝福煙火');
@@ -19,19 +20,23 @@
     launchButton.append(image);launchButton.type='button';launchButton.setAttribute('aria-label','請兩隻小貓點燃下一朵祝福煙火');
     const pauseButton=node('button','fireworks-pause','暫停自動');pauseButton.type='button';pauseButton.setAttribute('aria-pressed','false');
     const queueStatus=node('span','fireworks-queue',''),guide=node('span','fireworks-guide','每一朵祝福，都有自己的天空');queueStatus.setAttribute('role','status');queueStatus.setAttribute('aria-live','polite');
-    actions.append(launchButton,launchLabel,pauseButton,queueStatus,guide);root.append(heading,arena,actions);target.replaceChildren(root);
+    const details=node('dialog','fireworks-details'),detailsText=node('blockquote',''),detailsAuthor=node('p','fireworks-details-author'),detailsClose=node('button','','繼續看煙火');
+    details.setAttribute('aria-label','完整祝福');detailsClose.type='button';details.append(detailsText,detailsAuthor,detailsClose);
+    details.onclose=()=>{if(!inspecting)return;inspecting=false;if(running){readingWindow();pump()}};
+    detailsClose.onclick=()=>{if(details.close)details.close();else{details.hidden=true;details.onclose()}};
+    actions.append(launchButton,launchLabel,pauseButton,queueStatus,guide);root.append(heading,arena,actions,details);target.replaceChildren(root);
     function later(fn,ms){const id=schedule(()=>{timers.delete(id);fn()},Math.max(0,ms));timers.add(id);return id}
     function clear(id){if(id!==null){cancel(id);timers.delete(id)}}
     function capacity(){return Math.min(6,slots.length,entries.length)}
     function layout(){
       const width=arena.clientWidth||300,height=arena.clientHeight||300;
-      // Six evenly spaced reading cells. The first shell always uses upper center.
-      const cols=width>=620?3:1,rows=cols===3&&(height>=550||width>=1000&&height>=420)?2:1;
+      const mobile=width<620,cols=mobile?2:3,rows=mobile?3:(height>=550||width>=1000&&height>=420?2:1);
+      root.dataset.compact=String(mobile);
       slots=[];
-      const h=rows===2?height*.42:height*.64;
+      const h=mobile?height/3:rows===2?height*.42:height*.64;
       for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
         const w=width/cols,top=row*h;
-        slots.push({id:row*cols+col,center:row===0&&col===Math.floor(cols/2),left:col*w+8,top:top+6,width:w-16,height:h-12,x:(col+.5)*w,y:top+h/2});
+        slots.push({id:row*cols+col,mobile,center:row===0&&col===Math.floor(cols/2),left:col*w+5,top:top+4,width:w-10,height:h-8,x:(col+.5)*w,y:top+h/2});
       }
       root.dataset.columns=String(cols);root.dataset.rows=String(rows);
     }
@@ -52,14 +57,23 @@
     function freeSlot(){
       const used=new Set([...active].map(r=>r.slot.id));
       const free=slots.filter(slot=>!used.has(slot.id));if(!free.length)return null;
-      if(!active.size)return free.find(slot=>slot.center)||free[0];
+      if(!active.size){const slot=free.find(slot=>slot.center)||free[0];return slot.mobile?{...slot,solo:true,left:5,width:(arena.clientWidth||300)-10,x:(arena.clientWidth||300)/2}:slot}
+      for(const record of active)if(record.slot.solo){
+        record.slot=slots.find(slot=>slot.id===record.slot.id);
+        record.button?.style.setProperty('--end-x',record.slot.x+'px');
+        const startX=(arena.clientWidth||300)/2,startY=Math.max(0,(arena.clientHeight||300)-8),angle=Math.atan2(record.slot.y-startY,record.slot.x-startX)*180/Math.PI+90;
+        record.button?.style.setProperty('--angle',angle+'deg');record.trail?.style.setProperty('--angle',angle+'deg');
+        if(record.trail)record.trail.style.height=Math.hypot(record.slot.x-startX,record.slot.y-startY)+'px';
+        record.bloom?.style.setProperty('--burst-x',record.slot.x+'px');
+        if(record.message)fitMessage(record);
+      }
       // Choose the largest gap to existing reserved reading spaces.
       return free.sort((a,b)=>Math.min(...[...active].map(r=>(b.x-r.slot.x)**2+(b.y-r.slot.y)**2))-Math.min(...[...active].map(r=>(a.x-r.slot.x)**2+(a.y-r.slot.y)**2)))[0];
     }
     function queueAuto(ms=1100){clear(autoTimer);autoTimer=null;if(running&&!paused&&entries.length)autoTimer=later(()=>{autoTimer=null;if(!pending&&!active.size)launchNow();queueAuto()},ms)}
     function pumpAfter(ms){clear(pumpTimer);pumpTimer=null;if(running&&pending)pumpTimer=later(()=>{pumpTimer=null;pump()},ms)}
     function pump(){
-      if(!running||!pending||!entries.length)return;
+      if(!running||inspecting||!pending||!entries.length)return;
       const wait=Math.max(restUntil-clock(),lastLaunch+LAUNCH_GAP-clock());if(wait>0){pumpAfter(wait);return}
       if(launchNow()){pending--;controls();if(pending)pumpAfter(LAUNCH_GAP)}
       // Full waves wait for release(); a full sky never discards a click.
@@ -94,25 +108,40 @@
       message.style.left=slot.left+'px';message.style.top=slot.top+'px';message.style.width=slot.width+'px';message.style.height=slot.height+'px';
       message.append(node('div','fireworks-overline','一份心意，一朵煙火'),node('blockquote','',entry.text));
       const author=node('div','fireworks-author');author.append(avatar(entry),node('span','',entry.name));message.append(author);arena.append(message);record.message=message;
-      // Fit the complete message inside its reserved space; no clipping or ellipsis.
-      let size=slot.width<360?18:slot.width<520?22:28;
-      const units=Array.from(entry.text).reduce((sum,char)=>sum+(char.charCodeAt(0)>127?1:.58),0),usableWidth=slot.width-28,usableHeight=slot.height-90;
-      while(size>13&&Math.ceil(units/(usableWidth/size))*size*1.5>usableHeight)size--;
+      if(slot.mobile){
+        const read=node('button','fireworks-read','閱讀祝福');read.type='button';read.setAttribute('aria-label','閱讀 '+entry.name+' 的完整祝福');
+        read.onclick=()=>{
+          inspecting=true;detailsText.textContent=entry.text;detailsAuthor.textContent=entry.name;
+          for(const item of active){clear(item.fadeTimer);clear(item.releaseTimer);item.message?.classList.remove('leaving')}
+          details.hidden=false;if(details.showModal)details.showModal();
+        };message.append(read);
+      }
+      fitMessage(record);readingWindow();
+      controls();if(manual)queueAuto(900);
+    }
+    function fitMessage(record){
+      const {slot,message,entry}=record;
+      message.style.left=slot.left+'px';message.style.top=slot.top+'px';message.style.width=slot.width+'px';message.style.height=slot.height+'px';
+      message.dataset.compact=String(slot.mobile&&!slot.solo);
+      let size=slot.mobile?14:slot.width<360?18:slot.width<520?22:28;
+      const min=slot.mobile?12:13,units=Array.from(entry.text).reduce((sum,char)=>sum+(char.charCodeAt(0)>127?1:.58),0);
+      if(!slot.mobile)while(size>min&&Math.ceil(units/((slot.width-28)/size))*size*1.5>slot.height-90)size--;
       message.style.setProperty('--message-size',size+'px');
-      while(size>13&&message.scrollHeight>message.clientHeight){size--;message.style.setProperty('--message-size',size+'px')}
-      // Start a shared reading window after the latest bloom: early messages
-      // cannot disappear while the rest of their wave is still arriving.
+      if(!slot.mobile)while(size>min&&message.scrollHeight>message.clientHeight){size--;message.style.setProperty('--message-size',size+'px')}
+    }
+    function readingWindow(){
+      if(inspecting)return;
       const displayed=[...active].filter(r=>r.message);
-      const readTime=Math.max(6500,...displayed.map(r=>3200+Array.from(r.entry.text).length*95))+(displayed.length-1)*700;
+      const mobile=slots[0]?.mobile;
+      const readTime=Math.max(6500,...displayed.map(r=>3200+Array.from(r.entry.text).length*95),mobile?displayed.reduce((sum,r)=>sum+Array.from(r.entry.text).length*85,3200):0)+(displayed.length-1)*700;
       for(const item of displayed){
-        clear(item.fadeTimer);clear(item.releaseTimer);
+        clear(item.fadeTimer);clear(item.releaseTimer);item.message.classList.remove('leaving');
         item.fadeTimer=later(()=>item.message.classList.add('leaving'),readTime);
         item.releaseTimer=later(()=>release(item),readTime+550);
       }
-      controls();if(manual)queueAuto(900);
     }
     function launchNow(){
-      if(!running||!entries.length||clock()<restUntil||clock()-lastLaunch<LAUNCH_GAP||wave>=capacity())return false;
+      if(!running||inspecting||!entries.length||clock()<restUntil||clock()-lastLaunch<LAUNCH_GAP||wave>=capacity())return false;
       const slot=freeSlot();if(!slot)return false;const entry=next();if(!entry)return false;
       lastLaunch=clock();wave++;
       const colors=['#a6e4ff','#f4dc9c','#b6d1ff','#b8eee0','#edc9ef'];
@@ -135,7 +164,7 @@
       pending++;controls();pump();return true;
     }
     function stop(preserve=true){
-      running=false;if(preserve){resume.push(...[...active].map(r=>r.entry.key));pending+=active.size}
+      running=false;inspecting=false;if(details.open)details.close();else details.hidden=true;if(preserve){resume.push(...[...active].map(r=>r.entry.key));pending+=active.size}
       for(const id of timers)cancel(id);timers.clear();autoTimer=pumpTimer=resizeTimer=null;active.clear();wave=0;restUntil=0;arena.replaceChildren();empty();controls();
     }
     function reconcile(){

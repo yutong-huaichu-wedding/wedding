@@ -44,3 +44,19 @@
 @media(max-width:600px){.fireworks-actions{grid-template-columns:auto minmax(0,1fr) auto;max-width:460px}.fireworks-actions .fireworks-cats{width:130px;height:65px}.fireworks-actions>.fireworks-launch-label{font-size:11px;max-width:115px}.fireworks-queue,.fireworks-guide{grid-column:1/-1}}
 @media(max-height:600px) and (min-width:601px){.fireworks-actions .fireworks-cats{width:120px;height:60px}}
 @media(prefers-reduced-motion:reduce){.fireworks-trail,.fireworks-shell .fireworks-flame{animation:none}.fireworks-trail{display:none}.fireworks-rocket{animation:none;transform:translate(calc(var(--end-x) - 50%),calc(var(--end-y) - 50%))}.fireworks-message{animation:none}.fireworks-spark{animation:none;display:none}}
+/* Mobile: six readable bloom cards in two columns and three rows. */
+.fireworks-scene[data-compact=true]{min-height:820px}
+.fireworks-scene[data-compact=true] .fireworks-arena{inset:78px 6px 160px}
+.fireworks-scene[data-compact=true] .fireworks-message{padding:8px 6px;gap:5px;pointer-events:auto;overflow:hidden}
+.fireworks-scene[data-compact=true] .fireworks-overline{display:none}
+.fireworks-scene[data-compact=true] .fireworks-message blockquote{font-size:var(--message-size,14px);line-height:1.5;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;max-height:6em;min-height:0;flex-shrink:1}
+.fireworks-scene[data-compact=true] .fireworks-author{font-size:11px;gap:4px;max-width:100%}
+.fireworks-scene[data-compact=true] .fireworks-author .avatar-mini{width:18px;height:18px;font-size:14px}
+.fireworks-scene .fireworks-read{font:inherit;font-size:10px;line-height:1.5;background:#bceaff12;border:1px solid #bceaff40;border-radius:16px;color:#c9edfb;min-height:26px;padding:3px 9px;cursor:pointer;flex:none}
+.fireworks-details{box-sizing:border-box;width:min(88vw,460px);max-height:80dvh;overflow:auto;border:1px solid #8bc8dd80;border-radius:20px;padding:30px 24px;background:#0b3047;color:#f4fbff;box-shadow:0 20px 70px #001a30aa;text-align:center;overflow-wrap:anywhere}
+.fireworks-details::backdrop{background:#001c32c9;backdrop-filter:blur(4px)}
+.fireworks-details blockquote{margin:0;font-family:'Noto Serif TC',serif;font-size:20px;line-height:1.9;white-space:pre-wrap}
+.fireworks-details-author{font-size:14px;color:#b6dbe9;margin:20px 0}
+.fireworks-details button{border:1px solid #a5dceb70;background:#c1edff1a;color:#e6f7ff;font:inherit;padding:10px 18px;border-radius:24px;cursor:pointer}
+.projector[data-mode=wall] .fireworks-scene[data-compact=true]{min-height:100%}
+.projector[data-mode=wall] .fireworks-scene[data-compact=true] .fireworks-arena{inset:12vh 6px 160px}

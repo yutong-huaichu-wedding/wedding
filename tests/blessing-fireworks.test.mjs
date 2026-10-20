@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../public/blessing-fireworks.js',import.meta.url),'utf8');
 class Element{
- constructor(tag,width=800,height=400){this.tag=tag;this.className='';this.children=[];this.dataset={};this.attrs={};this.style={values:{},setProperty(name,value){this.values[name]=value},getPropertyValue(name){return this.values[name]}};this.clientWidth=width;this.clientHeight=height;this._text='';this.parent=null;this.classList={add:name=>{this.className+=' '+name}}}
+ constructor(tag,width=800,height=400){this.tag=tag;this.className='';this.children=[];this.dataset={};this.attrs={};this.style={values:{},setProperty(name,value){this.values[name]=value},getPropertyValue(name){return this.values[name]}};this.clientWidth=width;this.clientHeight=height;this._text='';this.parent=null;this.classList={add:name=>{this.className+=' '+name},remove:name=>{this.className=this.className.split(' ').filter(n=>n!==name).join(' ')}}}
  set textContent(value){this._text=String(value);this.children=[]}get textContent(){return this._text+this.children.map(e=>e.textContent).join('')}
  setAttribute(name,value){this.attrs[name]=value}
  append(...children){for(const child of children){child.parent=this;this.children.push(child);this.onAppend?.(child)}}
@@ -94,9 +94,23 @@ test('a 100-character blessing remains visible longer and retains its full text'
  const message=s.find('.fireworks-message');assert.equal(message.querySelector('blockquote').textContent,text);
  s.advance(9000);assert.equal(s.find('.fireworks-message'),message);s.advance(4250);assert.equal(s.find('.fireworks-message'),null);
 });
-test('narrow phones use one readable space and queue excess launches rather than overlap',()=>{
- const s=setup({width:300,height:360});s.show.update(many);s.show.setActive(true);pause(s);for(let i=0;i<4;i++)s.show.launch();
- s.advance(2100);assert.equal(s.all('.fireworks-message').length,1);assert.equal(s.find('.fireworks-scene').dataset.pending,'3');assert.equal(s.find('.fireworks-scene').dataset.columns,'1');
+test('phones display six disjoint blessings in two columns and three rows, excess clicks queue',()=>{
+ const s=setup({width:300,height:500});s.show.update(many);s.show.setActive(true);pause(s);for(let i=0;i<8;i++)s.show.launch();
+ s.advance(4200);const cards=s.all('.fireworks-message');assert.equal(cards.length,6);assert.equal(s.find('.fireworks-scene').dataset.pending,'2');assert.equal(s.find('.fireworks-scene').dataset.columns,'2');
+ assert.equal(new Set(cards.map(e=>e.style.left)).size,2);assert.equal(new Set(cards.map(e=>e.style.top)).size,3);
+ const boxes=cards.map(e=>({x:parseFloat(e.style.left),y:parseFloat(e.style.top),w:parseFloat(e.style.width),h:parseFloat(e.style.height)}));
+ for(let i=0;i<6;i++)for(let j=i+1;j<6;j++){const a=boxes[i],b=boxes[j];assert.ok(a.x+a.w<=b.x||b.x+b.w<=a.x||a.y+a.h<=b.y||b.y+b.h<=a.y)}
+});
+test('phone single launch is centered above, then moves into its cell when another launches',()=>{
+ const s=setup({width:360,height:500});s.show.update(many);s.show.setActive(true);pause(s);s.show.launch();
+ assert.equal(s.find('.fireworks-rocket').style.getPropertyValue('--end-x'),'180px');s.advance(2100);
+ const first=s.find('.fireworks-message');s.show.launch();assert.equal(first.dataset.compact,'true');assert.equal(first.style.width,'170px');
+});
+test('reading a full phone blessing holds the wave until dismissed',()=>{
+ const s=setup({width:320,height:500}),text='幸福'.repeat(50);s.show.update([{id:'long',name:'祝福者',text},...many]);s.show.setActive(true);pause(s);for(let i=0;i<7;i++)s.show.launch();s.advance(4200);
+ const read=s.all('.fireworks-message').find(e=>e.dataset.blessingId==='long').querySelector('.fireworks-read');read.onclick();
+ assert.equal(s.find('.fireworks-details').querySelector('blockquote').textContent,text);s.advance(90000);assert.equal(s.all('.fireworks-message').length,6);assert.equal(s.find('.fireworks-scene').dataset.pending,'1');
+ s.find('.fireworks-details').querySelector('button').onclick();s.advance(100000);assert.equal(s.find('.fireworks-scene').dataset.pending,'0');
 });
 test('new blessings are prioritized without restarting current flights; deletion immediately removes a displayed message',()=>{
  const s=setup();s.show.update(blessings);s.show.setActive(true);s.advance(700);const rocket=s.find('.fireworks-rocket');
@@ -108,7 +122,7 @@ test('backgrounding, switching activity and resizing stop timers but preserve qu
  const s=setup();s.show.update(many);s.show.setActive(true);pause(s);s.show.launch();s.show.launch();s.show.launch();s.advance(500);
  s.visible(false);assert.equal(s.timers.size,0);assert.equal(s.find('.fireworks-scene').dataset.pending,'3');assert.equal(s.all('.fireworks-rocket').length,0);
  s.advance(30000);s.visible(true);s.advance(500);assert.equal(s.all('.fireworks-rocket').length,2);assert.equal(s.find('.fireworks-scene').dataset.pending,'1');
- s.resize(320,400);s.advance(180);assert.equal(s.find('.fireworks-scene').dataset.columns,'1');assert.equal(s.all('.fireworks-rocket').length,1);assert.equal(s.find('.fireworks-scene').dataset.pending,'2');
+ s.resize(320,400);s.advance(180);assert.equal(s.find('.fireworks-scene').dataset.columns,'2');assert.equal(s.all('.fireworks-rocket').length,1);assert.equal(s.find('.fireworks-scene').dataset.pending,'2');
  s.show.setActive(false);assert.equal(s.timers.size,0);assert.equal(s.show.launch(),false);assert.equal(s.find('.fireworks-scene').dataset.pending,'3');
 });
 test('empty wall waits; hostile message text stays text; mount is reused; destroy cleans up',()=>{
