@@ -44,6 +44,24 @@ test('wide sky reserves six disjoint spaces; trajectories and bursts follow thos
  const rects=messages.map(e=>({x:parseFloat(e.style.left),y:parseFloat(e.style.top),w:parseFloat(e.style.width),h:parseFloat(e.style.height)}));
  for(let i=0;i<rects.length;i++)for(let j=i+1;j<rects.length;j++){const a=rects[i],b=rects[j];assert.ok(a.x+a.w<=b.x||b.x+b.w<=a.x||a.y+a.h<=b.y||b.y+b.h<=a.y)}
 });
+test('six blooms have equal column and row spacing; shells and trails clean up',()=>{
+ const s=setup({width:1600,height:720});s.show.update(many);s.show.setActive(true);pause(s);
+ for(let i=0;i<6;i++)s.show.launch();s.advance(2100);
+ const bodies=s.all('.fireworks-shell');assert.equal(bodies.length,5);assert.ok(s.all('.fireworks-trail').length>=5);
+ const label=s.find('.fireworks-launch-label');assert.equal(label.parent,s.find('.fireworks-actions'));
+ s.advance(2100);
+ const points=s.all('.fireworks-burst');assert.equal(points.length,6);
+ assert.equal(s.all('.fireworks-message').length,6);
+ const messages=s.all('.fireworks-message'),xs=[...new Set(messages.map(e=>parseFloat(e.style.left)))].sort((a,b)=>a-b),ys=[...new Set(messages.map(e=>parseFloat(e.style.top)))].sort((a,b)=>a-b);
+ assert.equal(xs.length,3);assert.equal(ys.length,2);assert.ok(Math.abs((xs[1]-xs[0])-(xs[2]-xs[1]))<.001);
+ assert.ok(ys[0]<720*.1);assert.ok(ys[1]<720*.5);
+ assert.ok(s.all('.fireworks-trail').length>0);s.advance(1000);assert.equal(s.all('.fireworks-trail').length,0);
+ assert.ok(s.all('.fireworks-spark').length>=54);
+ s.show.destroy();assert.equal(s.timers.size,0);
+});
+test('normal laptop projection still has six evenly reserved spaces',()=>{
+ const s=setup({width:1280,height:500});s.show.update(many);s.show.setActive(true);pause(s);for(let i=0;i<6;i++)s.show.launch();s.advance(4200);assert.equal(s.all('.fireworks-message').length,6);assert.equal(s.find('.fireworks-scene').dataset.rows,'2');
+});
 test('fifty rapid clicks all queue, hold each text, then leave a break before the next wave',()=>{
  const s=setup({width:1600,height:720});s.show.update(many);s.show.setActive(true);pause(s);
  for(let i=0;i<50;i++)assert.equal(s.show.launch(),true);
@@ -55,19 +73,19 @@ test('fifty rapid clicks all queue, hold each text, then leave a break before th
  s.advance(200000);assert.equal(s.find('.fireworks-scene').dataset.pending,'0');assert.equal(s.all('.fireworks-message').length,0);assert.equal(s.all('.fireworks-rocket').length,0);
  assert.equal(s.history.length,50);assert.equal(new Set(s.history.slice(0,9).map(m=>m.id)).size,9);
 });
-test('automatic show stays one at a time in the true center; only clicks add side rockets',()=>{
+test('automatic show stays one at a time in the upper center; only clicks add side rockets',()=>{
  const s=setup({width:1600,height:720});s.show.update(many);s.show.setActive(true);s.advance(700);
- const rocket=s.find('.fireworks-rocket');assert.equal(rocket.style.getPropertyValue('--end-x'),'800px');assert.equal(rocket.style.getPropertyValue('--end-y'),'360px');
+ const rocket=s.find('.fireworks-rocket');assert.equal(rocket.style.getPropertyValue('--end-x'),'800px');assert.equal(rocket.style.getPropertyValue('--end-y'),'151.2px');
  s.advance(7600);assert.equal(s.all('.fireworks-message').length,1);assert.equal(s.all('.fireworks-rocket').length,0);
  s.show.launch();const extra=s.find('.fireworks-rocket');assert.notEqual(extra.style.getPropertyValue('--end-x'),'800px');
  s.advance(30000);assert.equal(s.all('.fireworks-message').length+s.all('.fireworks-rocket').length,1);
- const current=s.find('.fireworks-message');if(current){assert.equal(parseFloat(current.style.left)+parseFloat(current.style.width)/2,800);assert.equal(parseFloat(current.style.top)+parseFloat(current.style.height)/2,360)}
+ const current=s.find('.fireworks-message');if(current){assert.equal(parseFloat(current.style.left)+parseFloat(current.style.width)/2,800);assert.equal(parseFloat(current.style.top)+parseFloat(current.style.height)/2,151.2)}
 });
 test('unattended playback never exceeds one centered blessing across repeated cycles',()=>{
  const s=setup({width:1600,height:720});s.show.update(many);s.show.setActive(true);
  for(let i=0;i<100;i++){
   s.advance(500);assert.ok(s.all('.fireworks-rocket').length+s.all('.fireworks-message').length<=1);
-  for(const rocket of s.all('.fireworks-rocket')){assert.equal(rocket.style.getPropertyValue('--end-x'),'800px');assert.equal(rocket.style.getPropertyValue('--end-y'),'360px')}
+  for(const rocket of s.all('.fireworks-rocket')){assert.equal(rocket.style.getPropertyValue('--end-x'),'800px');assert.equal(rocket.style.getPropertyValue('--end-y'),'151.2px')}
  }
  assert.ok(s.history.length>=3);
 });

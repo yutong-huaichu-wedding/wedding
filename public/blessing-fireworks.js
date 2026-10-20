@@ -16,21 +16,22 @@
     const launchButton=node('button','fireworks-launch'),image=node('img','fireworks-cats');
     image.src='/firework-cats-v1.webp';image.alt='';image.width=160;image.height=80;image.draggable=false;image.onerror=()=>{image.hidden=true};
     const launchLabel=node('span','fireworks-launch-label','點我，讓祝福升空');
-    launchButton.append(image,launchLabel);launchButton.type='button';launchButton.setAttribute('aria-label','請兩隻小貓點燃下一朵祝福煙火');
+    launchButton.append(image);launchButton.type='button';launchButton.setAttribute('aria-label','請兩隻小貓點燃下一朵祝福煙火');
     const pauseButton=node('button','fireworks-pause','暫停自動');pauseButton.type='button';pauseButton.setAttribute('aria-pressed','false');
     const queueStatus=node('span','fireworks-queue',''),guide=node('span','fireworks-guide','每一朵祝福，都有自己的天空');queueStatus.setAttribute('role','status');queueStatus.setAttribute('aria-live','polite');
-    actions.append(launchButton,pauseButton,queueStatus,guide);root.append(heading,arena,actions);target.replaceChildren(root);
+    actions.append(launchButton,launchLabel,pauseButton,queueStatus,guide);root.append(heading,arena,actions);target.replaceChildren(root);
     function later(fn,ms){const id=schedule(()=>{timers.delete(id);fn()},Math.max(0,ms));timers.add(id);return id}
     function clear(id){if(id!==null){cancel(id);timers.delete(id)}}
     function capacity(){return Math.min(6,slots.length,entries.length)}
     function layout(){
       const width=arena.clientWidth||300,height=arena.clientHeight||300;
-      // An odd grid provides a true center. Side cells are used only by clicks.
-      const cols=width>=620?3:1,rows=height>=660?3:1;
+      // Six evenly spaced reading cells. The first shell always uses upper center.
+      const cols=width>=620?3:1,rows=cols===3&&(height>=550||width>=1000&&height>=420)?2:1;
       slots=[];
+      const h=rows===2?height*.42:height*.64;
       for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
-        const w=width/cols,h=height/rows;
-        slots.push({id:row*cols+col,center:row===Math.floor(rows/2)&&col===Math.floor(cols/2),left:col*w+8,top:row*h+6,width:w-16,height:h-12,x:(col+.5)*w,y:(row+.5)*h});
+        const w=width/cols,top=row*h;
+        slots.push({id:row*cols+col,center:row===0&&col===Math.floor(cols/2),left:col*w+8,top:top+6,width:w-16,height:h-12,x:(col+.5)*w,y:top+h/2});
       }
       root.dataset.columns=String(cols);root.dataset.rows=String(rows);
     }
@@ -39,7 +40,7 @@
       root.dataset.pending=String(pending);root.dataset.active=String(active.size);
       const rest=clock()<restUntil;
       queueStatus.textContent=pending?'待發射 '+pending+' 朵'+(rest?' · 稍作停留後繼續':' · 看完這一輪，再接續綻放'):rest?'讓祝福留在眼前，下一輪即將升空':'';
-      guide.textContent=!entries.length?'送出第一份祝福，一起點亮這片海':paused?'自動已暫停 · 點小貓仍可排隊發射':'平時中央一朵 · 多點幾下，祝福向四周綻放';
+      guide.textContent=!entries.length?'送出第一份祝福，一起點亮這片海':paused?'自動已暫停 · 點小貓仍可排隊發射':'單發在上方中央 · 多點幾下，最多六朵平均綻放';
       launchLabel.textContent=pending?'再點一朵，加入隊伍':'點我，讓祝福升空';
     }
     function empty(){if(!entries.length){arena.replaceChildren();const e=node('div','fireworks-empty','第一朵煙火，等你點亮。');e.append(node('span','','送出祝福後，就會在這片海上綻放。'));arena.append(e)}}
@@ -69,8 +70,8 @@
     }
     function release(record){
       if(!active.has(record))return;
-      clear(record.flightTimer);clear(record.fadeTimer);clear(record.releaseTimer);clear(record.sparkTimer);
-      record.button?.remove();record.message?.remove();record.bloom?.remove();active.delete(record);
+      clear(record.flightTimer);clear(record.fadeTimer);clear(record.releaseTimer);clear(record.sparkTimer);clear(record.trailTimer);
+      record.trail?.remove();record.button?.remove();record.message?.remove();record.bloom?.remove();active.delete(record);
       if(!active.size){wave=0;restUntil=clock()+BREAK;later(controls,BREAK);if(!paused)queueAuto(BREAK+100)}
       controls();pump();
     }
@@ -80,9 +81,15 @@
       const entry=entries.find(b=>b.key===record.entry.key);if(!entry){release(record);return}
       const {slot,color}=record,bloom=node('div','fireworks-burst');bloom.setAttribute('aria-hidden','true');
       bloom.style.setProperty('--burst-x',slot.x+'px');bloom.style.setProperty('--burst-y',slot.y+'px');bloom.style.setProperty('--spark',color);bloom.append(node('span','fireworks-glow'));
-      const radius=Math.min(180,slot.width*.42,slot.height*.43);
-      for(let i=0;i<20;i++){const spark=node('i','fireworks-spark'),angle=i*Math.PI/10,length=radius*(i%2?.7:1);spark.style.setProperty('--dx',Math.cos(angle)*length+'px');spark.style.setProperty('--dy',Math.sin(angle)*length+'px');bloom.append(spark)}
-      arena.append(bloom);record.bloom=bloom;record.sparkTimer=later(()=>{bloom.remove();record.bloom=null},1800);
+      const radius=Math.min(210,slot.width*.44,slot.height*.48);
+      // Three rings of glowing embers, followed by a gravity-driven fall.
+      for(let i=0;i<54;i++){
+        const spark=node('i','fireworks-spark'),angle=i*Math.PI*2/18+(Math.floor(i/18)*.12),ring=1-Math.floor(i/18)*.24,length=radius*ring;
+        spark.style.setProperty('--dx',Math.cos(angle)*length+'px');spark.style.setProperty('--dy',Math.sin(angle)*length+'px');
+        spark.style.setProperty('--fall',Math.sin(angle)*length+55+'px');spark.style.setProperty('--angle',angle*180/Math.PI+90+'deg');
+        spark.style.setProperty('--duration',1.5+(i%5)*.12+'s');bloom.append(spark);
+      }
+      arena.append(bloom);record.bloom=bloom;record.sparkTimer=later(()=>{bloom.remove();record.bloom=null},2300);
       const message=node('div','fireworks-message');message.dataset.blessingId=entry.key;message.dataset.slot=String(slot.id);message.setAttribute('role','status');message.setAttribute('aria-live','polite');
       message.style.left=slot.left+'px';message.style.top=slot.top+'px';message.style.width=slot.width+'px';message.style.height=slot.height+'px';
       message.append(node('div','fireworks-overline','一份心意，一朵煙火'),node('blockquote','',entry.text));
@@ -111,9 +118,15 @@
       const colors=['#a6e4ff','#f4dc9c','#b6d1ff','#b8eee0','#edc9ef'];
       const record={entry,slot,color:colors[Math.floor(random()*colors.length)],button:node('button','fireworks-rocket'),message:null,bloom:null,flightTimer:null,fadeTimer:null,releaseTimer:null,sparkTimer:null};
       const button=record.button;button.type='button';button.dataset.blessingId=entry.key;button.dataset.slot=String(slot.id);button.setAttribute('aria-label','讓 '+entry.name+' 的祝福提早綻放');
-      button.style.setProperty('--start-x',(arena.clientWidth||300)*(.4+random()*.2)+'px');button.style.setProperty('--start-y',Math.max(0,(arena.clientHeight||300)-20)+'px');
-      button.style.setProperty('--end-x',slot.x+'px');button.style.setProperty('--end-y',slot.y+'px');button.style.setProperty('--spark',record.color);
-      button.append(node('span','fireworks-flame'),node('span','fireworks-rocket-label',entry.name+' 的祝福'),node('small','','點我綻放'));
+      const startX=(arena.clientWidth||300)/2,startY=Math.max(0,(arena.clientHeight||300)-8);
+      const angle=Math.atan2(slot.y-startY,slot.x-startX)*180/Math.PI+90;
+      button.style.setProperty('--start-x',startX+'px');button.style.setProperty('--start-y',startY+'px');
+      button.style.setProperty('--end-x',slot.x+'px');button.style.setProperty('--end-y',slot.y+'px');button.style.setProperty('--spark',record.color);button.style.setProperty('--angle',angle+'deg');
+      const trail=node('div','fireworks-trail');trail.setAttribute('aria-hidden','true');
+      trail.style.left=startX+'px';trail.style.top=startY+'px';trail.style.height=Math.hypot(slot.x-startX,slot.y-startY)+'px';
+      trail.style.setProperty('--angle',angle+'deg');trail.style.setProperty('--spark',record.color);arena.append(trail);record.trail=trail;
+      record.trailTimer=later(()=>{trail.remove();record.trail=null},2700);
+      const shell=node('span','fireworks-shell');shell.append(node('span','fireworks-flame'));button.append(shell);
       button.onclick=()=>burst(record,true);active.add(record);arena.append(button);record.flightTimer=later(()=>burst(record),FLIGHT);
       launchButton.setAttribute('data-igniting','true');later(()=>launchButton.setAttribute('data-igniting','false'),300);controls();return true;
     }
