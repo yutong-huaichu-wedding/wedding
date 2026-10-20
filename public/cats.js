@@ -4,8 +4,10 @@
   layer.className = 'falling-cats';
   layer.setAttribute('aria-hidden', 'true');
   document.body.prepend(layer);
+  function pauseWhenHidden(){for(const cat of layer.querySelectorAll('img'))cat.style.animationPlayState=document.hidden?'paused':''}
+  document.addEventListener('visibilitychange',pauseWhenHidden);
   const leftOrRight = () => Math.random() < .5 ? Math.random() * 15 : 85 + Math.random() * 13;
-  const count = innerWidth < 600 ? 6 : 12;
+  const count = innerWidth < 600 ? 2 : 4;
   for (let i = 0; i < count; i++) {
     const cat = document.createElement('img');
     cat.src = '/cat-fall-' + (i % 2 + 1) + '.png';
@@ -36,4 +38,5 @@
     });
     layer.append(cat);
   }
+  pauseWhenHidden();
 })();

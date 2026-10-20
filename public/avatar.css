@@ -54,3 +54,5 @@ body.needs-checkin #checkin .desc{text-align:center}
 @keyframes cat-pop{0%{transform:scale(1)}40%{transform:scale(1.4) rotate(20deg)}100%{transform:scale(0) rotate(180deg);opacity:0}}
 @keyframes cat-spark{0%{transform:translate(-50%,-50%) scale(.4);opacity:1}100%{transform:translate(-50%,-100%) scale(1.6);opacity:0}}
 @media(prefers-reduced-motion:reduce){.falling-cats,.cat-spark{display:none}}
+
+body.host-mode .falling-cats,body.projecting .falling-cats{display:none}body.host-mode .falling-cats img,body.projecting .falling-cats img{animation-play-state:paused}
