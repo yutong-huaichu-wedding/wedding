@@ -1,4 +1,4 @@
-import {createCloudProjection} from './cat-cloud.js?v=20261020-sync2';
+import {createCloudProjection} from './cat-cloud.js?v=20261020-media3';
 import {ready,validateMedia,validateDeck,projectionState,packDeck,unpackDeck,moveCatQuestion} from './cat-meme-model.js';
 import {createCatMemeDeck,mergeCatMemeDeck,catMemeQuestions,upgradeCatMemeSounds,applyFinalCatMemeDeck} from './cat-meme-questions.js';
 const $=id=>document.getElementById(id);
@@ -21,13 +21,39 @@ const src=blob=>{if(!blobUrls.has(blob)){const url=URL.createObjectURL(blob);blo
 function notice(text){$('notice').textContent=text;$('notice').style.display='block';clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('notice').style.display='none',5000)}
 function current(){return deck[index]||null}
 function connected(){return !!cloud?.enabled||Date.now()-lastScreenAt<6500}
-function stopSound(){for(const player of [$('soundPlayer'),$('picture').querySelector('video')])if(player){player.pause();player.removeAttribute('src');player.load();if(player.id==='soundPlayer')player.hidden=true}}
+function stopSound(){for(const player of new Set([$('soundPlayer'),$('picture').querySelector('video')]))if(player){player.pause();player._catCancel?.();if(player.id==='soundPlayer')player.hidden=true}}
+function loadStageMedia(element,url,video=false){
+  element._catCancel?.();
+  let cancelled=false,retries=0,timer;
+  const clear=()=>clearTimeout(timer);
+  element._catCancel=()=>{cancelled=true;clear();element.onerror=element.onload=element.oncanplay=element.onwaiting=element.onprogress=null};
+  const status=text=>{if(!cancelled)$('playbackStatus').textContent=text};
+  const ready=()=>{clear();status(video?(liveState?.revealed?'影片已載入。':'答案影片已預載，等待公布。'):'')};
+  const arm=()=>{clear();timer=setTimeout(retry,20000)};
+  const retry=()=>{
+    if(cancelled)return;
+    clear();
+    if(retries>=3){status('素材載入失敗：請確認網路，再重新出題或按「再播一次」。若仍失敗，請更換這個檔案。');return}
+    status('素材載入較慢，正在重試（'+(++retries)+'/3）…');
+    timer=setTimeout(()=>{
+      if(cancelled)return;
+      element.src=url;if(video)element.load();arm();
+      if(video&&liveState?.revealed&&lastPlayed===liveState.serial&&projectionVisible)void playSound(liveState);
+    },750*2**(retries-1));
+  };
+  element.onerror=retry;element.onload=ready;
+  if(video){element.preload='auto';element.oncanplay=ready;element.onwaiting=arm;element.onprogress=()=>{if(element.readyState<3)arm()}}
+  if(element.getAttribute('src')!==url||element.error||(!video&&element.complete&&!element.naturalWidth)){element.src=url;if(video)element.load()}
+  if(video?element.readyState>=3:element.complete&&element.naturalWidth>0)ready();else arm();
+}
 async function playSound(state=liveState,audioOnly=false){
   if(!state?.revealed)return;
   const video=audioOnly?null:$('picture').querySelector('video');
   const player=video||$('soundPlayer'),media=state.answerMediaType?.startsWith('video/')?state.answerMedia:!state.answerMedia&&state.soundType?.startsWith('video/')?state.sound:'';
   if(!media)return;
-  player.pause();player.src=media;player.volume=state.volume??.8;player.currentTime=0;player.controls=false;player.hidden=false;if(!video)player.hidden=true;
+  player.pause();if(player.getAttribute('src')!==media)player.src=media;
+  if(player.error){player.load();if(video)loadStageMedia(player,media,true)}
+  player.volume=state.volume??.8;player.currentTime=0;player.controls=false;player.hidden=false;if(!video)player.hidden=true;
   $('playbackStatus').textContent=video?'正在播放有聲答案影片…':'正在試聽影片聲音…';
   try{await player.play()}catch{$('playbackStatus').textContent='尚未播放：請按「再播一次」，並確認檔案可播放與喇叭已開。'}
 }
@@ -42,6 +68,7 @@ function renderStage(state,autoplay=false){
   const video=state.revealed&&(state.answerMedia?state.answerMediaType?.startsWith('video/'):state.soundType?.startsWith('video/'));
   const visualKey=key+'|'+visual;
   if(picture.dataset.src!==visualKey){
+    picture.querySelector('img')?._catCancel?.();
     picture.dataset.src=visualKey;
     const persistentPlayer=$('soundPlayer');
     if(picture.contains(persistentPlayer))$('answerBox').append(persistentPlayer);
@@ -49,14 +76,18 @@ function renderStage(state,autoplay=false){
     if(video){picture.append(persistentPlayer);persistentPlayer.hidden=false;persistentPlayer.controls=false;persistentPlayer.setAttribute('aria-label','答案影片')}
     if(visual){
       const element=picture.querySelector(video?'video':'img');
-      element.onerror=()=>{$('playbackStatus').textContent='答案素材無法播放，請在編輯區重新選擇影片或動圖。'};
-      element.src=visual;
+      loadStageMedia(element,visual,video);
     }
   }else if(!picture.innerHTML)picture.innerHTML='<div class="placeholder"><span>🐱</span><p>準備好你的小貓照片</p></div>';
+  else if(!video&&visual){const image=picture.querySelector('img');if(image?.complete&&!image.naturalWidth)loadStageMedia(image,visual)}
   $('answerBox').hidden=!state.revealed;
   $('stagePrompt').textContent=state.revealed?'原來是這個聲音！全場一起再來一次？':'舉起你的手，模仿牠的聲音！';
   $('answerText').textContent=state.revealed?state.answer||'':'';
   $('answerNote').textContent=state.revealed?state.note||'':'';
+  if(!state.revealed&&state.preloadMedia){
+    const player=$('soundPlayer');player.hidden=true;
+    loadStageMedia(player,state.preloadMedia,true);
+  }
   $('replay').disabled=!state.revealed||!video;
   if(autoplay&&state.revealed&&state.serial!==lastPlayed){lastPlayed=state.serial;void playSound(state)}
   $('soundPlayer').volume=state.volume??.8;

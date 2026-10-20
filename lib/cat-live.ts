@@ -11,7 +11,7 @@ const text = (value: unknown, max: number) => typeof value === 'string' && value
 type ProjectionState = {
   key: string; prompt: string; total: number; index: number; revealed: boolean; ready: boolean;
   serial: number; volume: number; image: string; answer?: string; name?: string; note?: string;
-  answerMedia?: string; answerMediaType?: string; sound?: string; soundType?: string;
+  answerMedia?: string; answerMediaType?: string; sound?: string; soundType?: string; preloadMedia?: string;
 };
 export function validProjection(value: unknown): value is ProjectionState {
   if (!value || typeof value !== 'object') return false;
@@ -23,6 +23,7 @@ export function validProjection(value: unknown): value is ProjectionState {
     && Number.isSafeInteger(s.serial) && s.serial >= 0
     && typeof s.volume === 'number' && s.volume >= 0 && s.volume <= 1
     && (s.image === '' || mediaPattern.test(s.image))
+    && (!s.preloadMedia || (typeof s.preloadMedia === 'string' && mediaPattern.test(s.preloadMedia)))
     && (!s.revealed || (text(s.answer, 160) && text(s.name, 80) && text(s.note, 300)
       && (!s.answerMedia || mediaPattern.test(s.answerMedia))
       && (!s.sound || mediaPattern.test(s.sound))
@@ -56,9 +57,11 @@ export async function catLive(request: Request) {
     let body; try { body = JSON.parse(raw); } catch { return bad('資料格式錯誤'); }
     const s = body.state;
     if (!validProjection(s)) return bad('投影資料無效');
-    // Explicit allowlist: hidden answers and browser-local blob URLs never reach the screen.
+    // Hidden answer text is excluded. A durable video URL may be sent early
+    // solely to preload silently; the player stays hidden until reveal.
     const state = { key: s.key, prompt: s.prompt, total: s.total, index: s.index, revealed: s.revealed,
       ready: s.ready, image: s.image, serial: s.serial, volume: s.volume,
+      ...(!s.revealed && s.preloadMedia ? { preloadMedia: s.preloadMedia } : {}),
       ...(s.revealed ? { answer: s.answer, name: s.name, note: s.note, answerMedia: s.answerMedia || '',
         answerMediaType: s.answerMediaType || '', sound: s.sound || '', soundType: s.soundType || '' } : {}) };
     const revision = crypto.randomUUID();
@@ -92,6 +95,10 @@ export async function uploadCatMedia(request: Request) {
 
 export async function readCatMedia(request: Request, id: string) {
   if (!/^[0-9a-f]{64}$/.test(id)) return new Response('Not found', { status: 404 });
+  if (request.method === 'HEAD') {
+    const object = await bucket().head('cat-memes/' + id);
+    return new Response(null, { status: object ? 200 : 404, headers: { 'cache-control': 'no-store' } });
+  }
   // R2 handles byte ranges for Safari and seeking; do not load entire videos into Worker memory.
   const object = await bucket().get('cat-memes/' + id, { range: request.headers });
   if (!object) return new Response('Not found', { status: 404 });

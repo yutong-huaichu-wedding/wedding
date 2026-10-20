@@ -229,7 +229,7 @@ function renderSharedProjection(){
   document.body.classList.add('projecting');$('projector').classList.add('show');
   if(mode==='cat'&&!catProjectionFrame){
     catProjectionFrame=document.createElement('iframe');catProjectionFrame.id='catProjectionFrame';catProjectionFrame.title='小貓迷因現場投影';
-    catProjectionFrame.allow='autoplay; fullscreen';catProjectionFrame.src='/cat-memes.html?screen=1&cloud=1&follow=1&embedded=1&v=20261020-sync2';
+    catProjectionFrame.allow='autoplay; fullscreen';catProjectionFrame.src='/cat-memes.html?screen=1&cloud=1&follow=1&embedded=1&v=20261020-media3';
     catProjectionFrame.onload=()=>catProjectionFrame.contentWindow?.postMessage({type:'wedding-projection-visible',active:catFrameActive},location.origin);
     $('projector').append(catProjectionFrame);
   }

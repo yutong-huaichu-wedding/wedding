@@ -2,7 +2,7 @@
 import {projectionState} from './cat-meme-model.js';
 export function createCloudProjection({session,screen=false,follow=false,onState=()=>{},onStatus=()=>{},fetchImpl=fetch,clock=Date.now,pollMs=900}) {
   const endpoint=screen&&follow?'/api/cat-live?follow=1':'/api/cat-live?session='+encodeURIComponent(session);
-  const uploaded=new WeakMap();
+  const uploaded=new WeakMap(),mediaURLs=new WeakMap();
   let enabled=screen,closed=false,timer=null,pending=null,sending=false,revision=null,seen=false,lastSerial=null,job=0,latest=0,requestedPlay=-1,sentPlay=-1;
   async function json(url,options={}) {
     const response=await fetchImpl(url,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(120000),...options});
@@ -13,8 +13,17 @@ export function createCloudProjection({session,screen=false,follow=false,onState
   async function media(blob) {
     if(!blob)return '';
     if(!uploaded.has(blob)) {
-      const promise=json('/api/cat-media',{method:'POST',headers:{'content-type':blob.type},body:blob})
-        .then(r=>r.url).catch(error=>{uploaded.delete(blob);throw error});
+      const promise=(async()=>{
+        // The same IndexedDB file survives refreshes; check its content address
+        // before sending a potentially large video over the phone connection.
+        const digest=await crypto.subtle.digest('SHA-256',await blob.arrayBuffer());
+        const id=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');
+        const url='/api/cat-media/'+id;
+        const exists=await fetchImpl(url,{method:'HEAD',credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(10000)});
+        if(exists.ok)return url;
+        if(exists.status!==404)throw Error('無法確認素材，請檢查網路連線');
+        return (await json('/api/cat-media',{method:'POST',headers:{'content-type':blob.type},body:blob})).url;
+      })().then(url=>{mediaURLs.set(blob,url);return url}).catch(error=>{uploaded.delete(blob);throw error});
       uploaded.set(blob,promise);
     }
     return uploaded.get(blob);
@@ -29,15 +38,23 @@ export function createCloudProjection({session,screen=false,follow=false,onState
         const q=work.q;
         const image=await media(q?.image);
         const answerBlob=q?.answerMedia?.type.startsWith('video/')?q.answerMedia:!q?.answerMedia&&q?.sound?.type.startsWith('video/')?q.sound:null;
-        const answer=await media(answerBlob);
+        // Show the question immediately. Upload the answer in the background,
+        // then publish only its preload URL (never its text) for a silent warmup.
+        const answer=work.revealed?await media(answerBlob):mediaURLs.get(answerBlob)||'';
         if(work.id!==latest)continue; // A newer selection supersedes a slow upload.
         const source=blob=>blob===q?.image?image:blob===answerBlob?answer:'';
-        const state={...projectionState(q,work.index,work.total,work.revealed,source),key:q?.id||'empty',serial:work.serial,volume:work.volume};
+        const state={...projectionState(q,work.index,work.total,work.revealed,source),key:q?.id||'empty',serial:work.serial,volume:work.volume,
+          ...(!work.revealed&&answer?{preloadMedia:answer}:{})};
         // Legacy audio is not used by this video-only game.
         if(!state.soundType?.startsWith('video/')){state.sound='';state.soundType=''}
         await json(endpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({state,autoplay:state.revealed&&state.serial===requestedPlay&&sentPlay!==requestedPlay})});
         if(state.revealed&&state.serial===requestedPlay)sentPlay=requestedPlay;
-        onStatus({kind:'sent',message:'✓ 手機指令已同步，等待投影連線。'});
+        onStatus({kind:'sent',message:!work.revealed&&answerBlob&&!answer?'✓ 題目已同步；正在準備答案影片…':'✓ 題目與答案素材已同步，請確認電腦畫面。'});
+        if(!work.revealed&&answerBlob&&!answer)void media(answerBlob).then(()=>{
+          if(!closed&&currentWork?.id===work.id){pending=currentWork;void pump()}
+        }).catch(error=>{
+          if(!closed&&currentWork?.id===work.id){pending=currentWork;onStatus({kind:'error',message:'答案影片準備失敗，將自動重試：'+error.message})}
+        });
       }
     } catch(error) {
       // Retry the most recent desired state, never an obsolete question.
