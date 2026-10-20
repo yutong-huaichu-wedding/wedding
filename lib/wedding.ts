@@ -53,7 +53,7 @@ export async function state(request: Request) {
     all('SELECT b.id,b.name,b.text,b.created_at AS time,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue FROM blessings b LEFT JOIN guests g ON g.id=b.guest_id ORDER BY b.created_at DESC LIMIT 150'),
     all('SELECT id,name,created_at AS time FROM photos ORDER BY created_at DESC LIMIT 150'),
     all('SELECT id,text,options,correct,position FROM questions ORDER BY position,id'),
-    all('SELECT id,guest_id AS guestId,name,numbers,created_at AS time FROM tickets ORDER BY created_at'),
+    all('SELECT t.id,t.guest_id AS guestId,t.name,t.numbers,t.created_at AS time,b.text AS blessing FROM tickets t LEFT JOIN blessings b ON b.id=t.id ORDER BY t.created_at'),
     admin ? all('SELECT id,name,avatar_kind AS avatarKind,avatar_value AS avatarValue,created_at AS time FROM guests ORDER BY created_at') : Promise.resolve([]),
     setting('lottery', lotteryDefault),
     setting('quiz', quizDefault),
@@ -92,7 +92,7 @@ export async function readProjection() {
     setting('lottery', lotteryDefault), setting('kahoot', kahootDefault)
   ]);
   const winners = lottery.status === 'drawn' ? (await all('SELECT name FROM tickets WHERE numbers=?', JSON.stringify(lottery.result))).map(row => row.name) : [];
-  const blessings = projection.mode === 'wall' ? await all('SELECT b.name,b.text,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue FROM blessings b LEFT JOIN guests g ON g.id=b.guest_id ORDER BY b.created_at DESC LIMIT 150') : [];
+  const blessings = projection.mode === 'wall' ? await all('SELECT b.id,b.name,b.text,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue FROM blessings b LEFT JOIN guests g ON g.id=b.guest_id ORDER BY b.created_at DESC LIMIT 150') : [];
   return good({ projection, mahjong, lottery: { ...lottery, winners }, kahoot, blessings });
 }
 
@@ -164,10 +164,17 @@ export async function action(request: Request) {
     if (type === 'proxyTicket' && !admin) return bad('僅主持人可代投', 403);
     const numbers = body.numbers;
     if (!validNumbers(numbers)) return bad('請從 1–49 選 6 個不重複號碼');
+    if (body.blessing != null && typeof body.blessing !== 'string') return bad('祝福格式錯誤');
+    const blessing = (body.blessing || '').trim();
+    if (blessing.length > 100) return bad('祝福請在 100 字以內');
     const target = type === 'ticket' ? me : await first('SELECT id,name FROM guests WHERE id=?', clean(body.guestId, 80));
     if (!target) return bad('找不到報到賓客');
     const sorted = [...numbers].sort((a,b) => a-b);
-    const result = await run("INSERT INTO tickets (id,guest_id,name,numbers,created_at) SELECT ?,?,?,?,? WHERE COALESCE(json_extract((SELECT value FROM settings WHERE key='lottery'),'$.status'),'open')='open' ON CONFLICT(guest_id) DO NOTHING", crypto.randomUUID(), target.id, target.name, JSON.stringify(sorted), now());
+    const id = crypto.randomUUID(), time = now();
+    const ticket = db().prepare("INSERT INTO tickets (id,guest_id,name,numbers,created_at) SELECT ?,?,?,?,? WHERE COALESCE(json_extract((SELECT value FROM settings WHERE key='lottery'),'$.status'),'open')='open' ON CONFLICT(guest_id) DO NOTHING").bind(id, target.id, target.name, JSON.stringify(sorted), time);
+    // One transaction: only this newly created ticket can add its blessing.
+    // A duplicate ticket or closed round cannot leave an orphan message.
+    const [result] = await db().batch([ticket, ...(blessing ? [db().prepare('INSERT INTO blessings (id,guest_id,name,text,created_at) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM tickets WHERE id=?)').bind(id, target.id, target.name, blessing, time, id)] : [])]);
     if (!result.meta.changes) return bad('投注已截止，或該賓客已投注');
     return good({ ok: true });
   }

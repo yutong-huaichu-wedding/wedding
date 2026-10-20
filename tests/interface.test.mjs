@@ -6,7 +6,7 @@ import vm from 'node:vm';
 function setup(){
  const elements=new Map();
  const element=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',value:'',dataset:{},setAttribute(){},disabled:false,style:{},classList:{add(){},remove(){},toggle(){},contains(){return false}},addEventListener(){},append(){},querySelectorAll(){return []}});return elements.get(id)};
- const document={getElementById:element,querySelector:element,querySelectorAll(){return []},createElement:element,body:element('body'),hidden:false};
+ const document={addEventListener(){},getElementById:element,querySelector:element,querySelectorAll(){return []},createElement:element,body:element('body'),hidden:false};
  const ctx=vm.createContext({document,window:{addEventListener(){}},localStorage:{getItem(){return null}},setTimeout(){},setInterval(){},clearTimeout(){},console,URLSearchParams,location:{search:''},fetch:()=>new Promise(()=>{}),URL,Blob,confirm:()=>true});
  vm.runInContext(readFileSync(new URL('../public/app.js',import.meta.url),'utf8'),ctx);
  return {ctx,element,run:code=>vm.runInContext(code,ctx)};
@@ -56,4 +56,23 @@ test('saving Kahoot sends configuration once, disables edits and retains failed 
  run("globalThis.sent=[];globalThis.finish=null;act=(type,fields)=>{sent.push({type,...fields});return new Promise(resolve=>finish=resolve)};globalThis.saving=saveKahoot()");
  assert.equal(element('kahootUrl').disabled,true);await run('saveKahoot()');assert.equal(run('sent.length'),1);assert.equal(run('sent[0].type'),'kahootUpdate');
  run('finish(null)');await run('saving');assert.equal(element('kahootUrl').disabled,false);assert.equal(element('kahootPin').value,'333333');assert.equal(run('kahootDirty'),true);
+});
+
+test('lottery sends one ticket with blessing, keeps failed drafts, and clears only on success',async()=>{
+ const {run,element}=setup();
+ run("data.me={id:'a',name:'賓客',avatarKind:'preset',avatarValue:'cat'};picks=[1,2,3,4,5,6];globalThis.sent=[];globalThis.finish=null;act=(type,fields)=>{sent.push({type,...fields});return new Promise(resolve=>finish=resolve)}");
+ element('ticketBlessing').value='  祝幸福久久  ';
+ run('globalThis.sending=submitTicket()');assert.equal(element('ticketSubmit').disabled,true);assert.equal(element('ticketBlessing').disabled,true);
+ await run('submitTicket()');assert.equal(run('sent.length'),1);assert.equal(run('sent[0].blessing'),'祝幸福久久');
+ run('finish(null)');await run('sending');assert.equal(element('ticketBlessing').value,'  祝幸福久久  ');assert.equal(run('picks.length'),6);assert.equal(element('ticketSubmit').disabled,false);
+ run('globalThis.sending=submitTicket();finish({ok:true})');await run('sending');assert.equal(element('ticketBlessing').value,'');assert.equal(run('picks.length'),0);
+});
+
+test('wedding wall mounts fireworks once and stops them when changing projection activity',()=>{
+ const {run}=setup();
+ run("globalThis.walls=[];window.WeddingFireworks={mount(target){const item={target,active:false,update(messages){this.messages=messages},setActive(active){this.active=active}};walls.push(item);return item}};data.blessings=[{id:'a',name:'賓客',text:'新婚快樂'}];openProjection('wall')");
+ assert.equal(run('walls.length'),1);assert.equal(run('walls[0].active'),true);assert.equal(run('walls[0].messages[0].text'),'新婚快樂');
+ run('renderProjection()');assert.equal(run('walls.length'),1);
+ run("openProjection('mahjong')");assert.equal(run('walls[0].active'),false);
+ run("openProjection('wall');closeProjection()");assert.equal(run('walls[0].active'),false);
 });

@@ -59,6 +59,30 @@ test('proxy ticket validates six distinct numbers, one ticket, open state and ho
  assert.equal((await act('proxyTicket',{guestId:'b',numbers:[1,2,3,4,5,6]},'a')).status,403);for(const numbers of [[1,1,2,3,4,5],[0,1,2,3,4,5],[1,2,3,4,5,50],[1,2,3]])assert.equal((await act('proxyTicket',{guestId:'b',numbers})).status,400);
  await ok('proxyTicket',{guestId:'b',numbers:[6,5,4,3,2,1]});assert.deepEqual((await state('b')).myTicket.numbers,[1,2,3,4,5,6]);assert.equal((await act('proxyTicket',{guestId:'b',numbers:[7,8,9,10,11,12]})).status,400);await ok('lottoState',{status:'closed'});assert.equal((await act('proxyTicket',{guestId:'c',numbers:[1,2,3,4,5,6]})).status,400);
 });
+
+test('ticket and optional blessing save together, appear on wall and ticket, and cannot duplicate on retry',async()=>{
+ const numbers=[6,5,4,3,2,1];
+ await ok('ticket',{numbers,blessing:'  祝幸福久久 ♡  '},'a');
+ let s=await state('a');assert.equal(s.myTicket.blessing,'祝幸福久久 ♡');assert.equal(s.blessings.length,1);assert.equal(s.blessings[0].name,'賓客a');assert.equal(s.blessings[0].text,'祝幸福久久 ♡');
+ assert.equal((await act('ticket',{numbers,blessing:'重複送出'},'a')).status,400);assert.equal((await state()).blessings.length,1);
+ await ok('ticket',{numbers,blessing:'   '},'b');assert.equal((await state('b')).myTicket.blessing,null);assert.equal((await state()).blessings.length,1);
+ const admin=await state('admin');assert.equal(admin.tickets.find(t=>t.guestId==='a').blessing,'祝幸福久久 ♡');
+ await ok('lottoReset');assert.equal((await state()).myTicket,null);assert.equal((await state()).blessings.length,1);
+});
+
+test('closed rounds, invalid messages and anonymous submissions create neither ticket nor blessing',async()=>{
+ const numbers=[1,2,3,4,5,6];
+ for(const blessing of ['祝'.repeat(101),{text:'祝福'}])assert.equal((await act('ticket',{numbers,blessing},'a')).status,400);
+ assert.equal((await act('ticket',{numbers,blessing:'匿名'},'')).status,401);
+ await ok('lottoState',{status:'closed'});assert.equal((await act('ticket',{numbers,blessing:'已截止'},'a')).status,400);
+ assert.equal((await state('admin')).tickets.length,0);assert.equal((await state()).blessings.length,0);
+});
+
+test('a blessing write failure rolls back the ticket transaction',async()=>{
+ sqlite.exec("CREATE TRIGGER reject_blessing BEFORE INSERT ON blessings BEGIN SELECT RAISE(ABORT,'test failure'); END");
+ await assert.rejects(()=>act('ticket',{numbers:[1,2,3,4,5,6],blessing:'祝福'},'a'));
+ assert.equal((await state()).myTicket,null);assert.equal((await state()).blessings.length,0);
+});
 test('photo deletion is host-only and touches only selected photo and storage object',async()=>{
  for(const id of ['p1','p2']){await api.run('INSERT INTO photos VALUES (?,?,?,?,?)',id,'a','賓客a','image/jpeg',1);await api.run('INSERT INTO media VALUES (?,?,?)',id,new Uint8Array([1]),1)}assert.equal((await act('photoDelete',{id:'p1'},'a')).status,403);assert.equal((await state()).photos.length,2);await ok('photoDelete',{id:'p1'});assert.deepEqual(deleted,['photos/p1']);assert.equal((await state()).photos[0].id,'p2');assert.ok(await api.first('SELECT id FROM media WHERE id=?','p2'));
 });
@@ -100,4 +124,12 @@ test('Kahoot configuration is host-only and shared with all guests, with strict 
  for(const url of ['javascript:alert(1)','http://kahoot.it/','https://kahoot.it.evil.test/','https://kahoot.it@evil.test/','https://evil.test/kahoot.it','https://user:secret@kahoot.it/','https://kahoot.it:444/'])assert.equal((await act('kahootUpdate',{url,pin:''})).status,400);
  assert.equal((await act('kahootUpdate',{url:'https://kahoot.it/',pin:'<script>'})).status,400);
  assert.equal((await state('a')).kahoot.pin,'123456');assert.equal((await state('a')).mahjong.phase,'guess');
+});
+
+test('shared projector follows phone Mahjong commands and only hosts can choose its mode',async()=>{
+ let screen=await (await api.readProjection()).json();assert.equal(screen.projection.mode,'waiting');assert.equal(screen.me,undefined);assert.equal(screen.guests,undefined);
+ await ok('mahjongPhase',{phase:'correct'});screen=await (await api.readProjection()).json();assert.equal(screen.projection.mode,'mahjong');assert.equal(screen.mahjong.phase,'correct');
+ assert.equal((await act('projectionMode',{mode:'kahoot'},'a')).status,403);
+ await ok('projectionMode',{mode:'kahoot'});screen=await (await api.readProjection()).json();assert.equal(screen.projection.mode,'kahoot');assert.equal(screen.mahjong.phase,'correct');
+ assert.equal((await act('projectionMode',{mode:'cat'})).status,400);assert.equal((await act('projectionMode',{mode:'evil'})).status,400);
 });
