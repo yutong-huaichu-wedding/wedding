@@ -77,7 +77,7 @@ function refresh(afterAction=false){
 
 function authHeaders(){ const token=localStorage.getItem(TOKEN_KEY); return token?{'Authorization':'Bearer '+token}:{} }
 async function act(type,fields={},options={}){ try{ const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json',...authHeaders()},credentials:'same-origin',body:JSON.stringify({type,...fields})}); const result=await r.json(); if(!r.ok)throw Error(result.error||'操作失敗'); if(!options.skipRefresh)await refresh(true); return result; }catch(e){toast(e.message||'操作失敗');return null} }
-function go(t){wakePoll();document.body.classList.toggle('host-mode',t==='admin');if(t==='admin')hostMode=true; else if(t==='checkin')hostMode=false; if(!completeGuest()&&t!=='admin')t='checkin'; selectPanel(t);window.scrollTo({top:0,behavior:'smooth'});render() }
+function go(t){wakePoll();document.body.classList.toggle('host-mode',t==='admin');if(t==='admin')hostMode=true; else if(t==='checkin')hostMode=false; if(!completeGuest()&&!data.admin&&t!=='admin')t='checkin'; selectPanel(t);window.scrollTo({top:0,behavior:'smooth'});render() }
 document.querySelectorAll('#tabs button').forEach(e=>e.addEventListener('click',()=>go(e.dataset.tab)));
 function requireGuest(){ if(completeGuest())return true;toast('請先完成姓名與頭像報到');go('checkin');return false }
 async function checkin(){
@@ -172,11 +172,26 @@ async function proxyTicket(){
 }
 async function editTicketName(id){const ticket=data.tickets.find(t=>t.id===id);if(!ticket)return;const realName=prompt('核對賓客身分後，輸入兌獎本名（不會改動號碼）',ticket.name);if(realName===null)return;if(await act('ticketName',{id,realName}))toast('兌獎本名已更正，投注號碼不變')}
 async function setLotteryState(status){if(await act('lottoState',{status}))toast(status==='open'?'投注已開放':'投注已截止')}
-async function beginDraw(){if(await act('draw')){openProjection('lotto');toast('開始開獎')}}
-async function resetLottery(){if(!confirm('確定清空這一輪所有彩券與開獎結果？'))return;await act('lottoReset')}
+let drawBusy=false;
+async function beginDraw(){
+  if(drawBusy)return;drawBusy=true;renderLotteryControls();
+  try{if(await act('draw',{prizeName:$('drawPrizeName')?.value.trim()||''})){
+    if($('drawPrizeName'))$('drawPrizeName').value='';renderDraw('hostDrawBalls');$('hostDrawBalls')?.scrollIntoView?.({behavior:'smooth',block:'center'});toast('開始開獎，手機與投影會同步顯示');
+  }}finally{drawBusy=false;renderLotteryControls()}
+}
+async function resetLottery(){if(!confirm('確定開始新一輪？這會清空本輪全部彩券與所有得獎紀錄。若只是開下一個獎，請按「開下一個獎」。'))return;await act('lottoReset')}
 function drawCount(){if(window.WeddingLottery)return window.WeddingLottery.count(data.lottery);if(data.lottery.status!=='drawn')return 0;return Math.min(6,Math.max(0,Math.floor((Date.now()-data.lottery.startedAt)/1600)))}
 function lotteryLabel(){if(data.lottery.status==='drawn'&&drawCount()<6)return '幸福開獎中';return ({open:'投注開放中',closed:'已截止投注',drawn:'已開獎'})[data.lottery.status]||'等待開獎'}
-function renderDraw(id){const target=$(id);if(window.WeddingLottery){window.WeddingLottery.mount(target).update(data.lottery);return}setHTML(id,ballHTML())}
+function renderDraw(id){
+  const target=$(id);if(!target)return;
+  const hidden=id==='drawBalls'?displayMode||projection||!$('games').classList.contains('active')||game!=='lotto':id==='hostDrawBalls'?displayMode||projection||!data.admin||!$('admin').classList.contains('active')||$('ad-lottery').classList.contains('hidden'):false;
+  if(hidden){window.WeddingLottery?.unmount(target);return}
+  if(window.WeddingLottery){window.WeddingLottery.mount(target).update(data.lottery);return}setHTML(id,ballHTML())
+}
+function renderHostDraw(){
+  renderDraw('hostDrawBalls');
+  if($('hostDrawStatus'))$('hostDrawStatus').textContent=lotteryLabel()+(drawCount()===6&&data.lottery.winners?.length?'｜恭喜 '+data.lottery.winners.join('、')+'！':'');
+}
 function ballHTML(){const arr=(data.lottery.result||[]).slice(0,drawCount());return [...Array(6)].map((_,i)=>'<div class="ball '+(i>=arr.length?'placeholder':'')+'">'+(i<arr.length?String(arr[i]).padStart(2,'0'):'?')+'</div>').join('')}
 let kahootDirty=false,kahootSaving=false,kahootSignature='';
 function kahootSettings(){
@@ -226,8 +241,9 @@ let mahjongBusy=false;
 function mahjongPhase(){return Object.hasOwn(mahjongViews,data.mahjong?.phase)?data.mahjong.phase:'guess'}
 function renderMahjongControls(){
   if(!$('mahjongHostStatus'))return;
+  renderMahjongQuizControls();
   const phase=mahjongPhase();
-  $('mahjongHostStatus').textContent='目前投影畫面：'+mahjongViews[phase].title+(mahjongBusy?'（切換中…）':'');
+  $('mahjongHostStatus').textContent='目前投影畫面：'+(data.mahjong?.kind==='quiz'?'聽牌第 '+(data.mahjong.index+1)+' 題・'+(data.mahjong.phase==='answer'?'解答':'猜題'):mahjongViews[phase].title)+(mahjongBusy?'（切換中…）':'');
   for(const [name,key] of [['Guess','guess'],['Correct','correct'],['Wrong','wrong']]){
     const button=$('mahjong'+name);button.disabled=mahjongBusy;button.setAttribute('aria-pressed',String(phase===key));
   }
@@ -238,7 +254,24 @@ async function setMahjongPhase(phase){
   try{if(await act('mahjongPhase',{phase})){toast('已切換為「'+mahjongViews[phase].title+'」')}}
   finally{mahjongBusy=false;renderMahjongControls()}
 }
+function renderMahjongQuizControls(){
+  if(!window.MahjongQuiz||!$('mahjongQuizPreview'))return;
+  const active=data.mahjong?.kind==='quiz',index=active?data.mahjong.index:0;
+  $('mahjongQuizIndex').value=String(index);
+  for(const id of ['mahjongQuizIndex','mahjongQuizShow','mahjongQuizAnswer','mahjongQuizPrev','mahjongQuizNext'])$(id).disabled=mahjongBusy;
+  $('mahjongQuizPrev').disabled=mahjongBusy||index===0;$('mahjongQuizNext').disabled=mahjongBusy||index===4;
+  $('mahjongQuizAnswer').disabled=mahjongBusy||!active||data.mahjong.phase==='answer';
+  setHTML('mahjongQuizPreview',window.MahjongQuiz.markup(index,active&&data.mahjong.phase==='answer'));
+}
+async function setMahjongQuiz(index,phase='question'){
+  if(mahjongBusy||!Number.isInteger(index)||index<0||index>4||!['question','answer'].includes(phase))return;
+  mahjongBusy=true;renderMahjongControls();
+  try{if(await act('mahjongQuiz',{index,phase}))toast('已同步聽牌第 '+(index+1)+' 題'+(phase==='answer'?'解答':''))}
+  finally{mahjongBusy=false;renderMahjongControls()}
+}
+function changeMahjongQuiz(offset){setMahjongQuiz((data.mahjong?.kind==='quiz'?data.mahjong.index:0)+offset)}
 function renderMahjongProjection(){
+  if(data.mahjong?.kind==='quiz'&&window.MahjongQuiz){$('projector').dataset.mahjongPhase='quiz';$('projTitle').textContent='麻將聽牌挑戰';const key='quiz:'+data.mahjong.index+':'+data.mahjong.phase;if($('projMessage').dataset.mahjongPhase!==key){$('projMessage').dataset.mahjongPhase=key;$('projMessage').innerHTML=window.MahjongQuiz.markup(data.mahjong.index,data.mahjong.phase==='answer')}return}
   const phase=mahjongPhase(),view=mahjongViews[phase],target=$('projMessage');
   $('projector').dataset.mahjongPhase=phase;
   if(target.dataset.mahjongPhase===phase)return;
@@ -246,8 +279,8 @@ function renderMahjongProjection(){
   target.innerHTML='<div class="mahjong-display" role="status" aria-live="polite"><div class="mahjong-tag">'+view.tag+'</div><div class="mahjong-tiles" aria-hidden="true"><span class="mahjong-tile mahjong-back"></span><span class="mahjong-tile mahjong-main">'+view.symbol+'</span><span class="mahjong-tile mahjong-back"></span></div><h2>'+view.title+'</h2><p class="mahjong-line">'+view.line+'</p><p class="mahjong-hint">'+view.hint+'</p><div class="mahjong-signature">宇童 ♡ 懷筑 · 2026.12.12</div></div>';
 }
 function openProjection(type){wakePoll();document.body.classList.add('projecting');projection=type;$('projector').classList.add('show');renderProjection()}
-function closeProjection(){window.WeddingLottery?.unmount($('projBalls'));document.body.classList.remove('projecting');projection='';$('projector').classList.remove('show');updateFireworkWalls()}
-function renderProjection(){if(!projection){updateFireworkWalls();return}$('projector').dataset.mode=projection;$('projWall').style.display=projection==='wall'?'block':'none';updateFireworkWalls();if(projection!=='lotto')window.WeddingLottery?.unmount($('projBalls'));if(projection==='mahjong'){$('projTitle').textContent='摸麻將挑戰';$('projWall').style.display='none';setHTML('projBalls','');renderMahjongProjection();return}delete $('projMessage').dataset.mahjongPhase;$('projWall').style.display=projection==='wall'?'block':'none';$('projTitle').textContent=({wall:'海上的祝福煙火',lotto:'幸福大樂透',kahoot:'Kahoot! 參賽入口'})[projection];if(projection==='lotto')renderDraw('projBalls');else{window.WeddingLottery?.unmount($('projBalls'));setHTML('projBalls','')}if(projection==='lotto')$('projMessage').textContent=drawCount()===6?'恭喜 '+(data.lottery.winners||[]).join('、')+'！':lotteryLabel();else if(projection==='kahoot'){const config=kahootSettings();$('projMessage').innerHTML='<div class="kahoot-projection"><span class="kahoot-mark">K!</span><h2>一起加入 Kahoot! 婚禮挑戰</h2><p>從婚禮網站點「前往 Kahoot!」</p><p class="kahoot-pin">'+(config.pin?'Game PIN：'+config.pin:'請依主持人指示輸入 PIN')+'</p><a class="primary kahoot-link" target="_blank" rel="noopener noreferrer" href="'+escapeHTML(config.url)+'">前往 Kahoot! ↗</a><p class="small">題目與排行榜請看接下來的 Kahoot! 主持畫面</p></div>'}else $('projMessage').textContent='讓祝福在海上綻放 ♡'}
+function closeProjection(){window.WeddingLottery?.unmount($('projBalls'));document.body.classList.remove('projecting');projection='';$('projector').classList.remove('show');updateFireworkWalls();renderDraw('drawBalls');renderHostDraw()}
+function renderProjection(){if(projection){window.WeddingLottery?.unmount($('drawBalls'));window.WeddingLottery?.unmount($('hostDrawBalls'));}if(!projection){updateFireworkWalls();return}$('projector').dataset.mode=projection;$('projWall').style.display=projection==='wall'?'block':'none';updateFireworkWalls();if(projection!=='lotto')window.WeddingLottery?.unmount($('projBalls'));if(projection==='mahjong'){$('projTitle').textContent='摸麻將挑戰';$('projWall').style.display='none';setHTML('projBalls','');renderMahjongProjection();return}delete $('projMessage').dataset.mahjongPhase;$('projWall').style.display=projection==='wall'?'block':'none';$('projTitle').textContent=({wall:'海上的祝福煙火',lotto:'幸福大樂透'+(data.lottery.prizeName?'｜'+data.lottery.prizeName:''),kahoot:'Kahoot! 參賽入口'})[projection];if(projection==='lotto')renderDraw('projBalls');else{window.WeddingLottery?.unmount($('projBalls'));setHTML('projBalls','')}if(projection==='lotto')$('projMessage').textContent=drawCount()===6?'恭喜 '+(data.lottery.winners||[]).join('、')+'！':lotteryLabel();else if(projection==='kahoot'){const config=kahootSettings();$('projMessage').innerHTML='<div class="kahoot-projection"><span class="kahoot-mark">K!</span><h2>一起加入 Kahoot! 婚禮挑戰</h2><p>從婚禮網站點「前往 Kahoot!」</p><p class="kahoot-pin">'+(config.pin?'Game PIN：'+config.pin:'請依主持人指示輸入 PIN')+'</p><a class="primary kahoot-link" target="_blank" rel="noopener noreferrer" href="'+escapeHTML(config.url)+'">前往 Kahoot! ↗</a><p class="small">題目與排行榜請看接下來的 Kahoot! 主持畫面</p></div>'}else $('projMessage').textContent='讓祝福在海上綻放 ♡'}
 let catProjectionFrame=null,catFrameActive=false;
 function sharedProjectionUrl(){return new URL('/wedding_1212?display=1',location.href).href}
 function openSharedProjection(){window.open(sharedProjectionUrl(),'wedding-shared-projection')}
@@ -286,21 +319,27 @@ function renderProfileForm(me){
   $('profileDescription').textContent=me?'可以修改姓名、更換可愛頭像，或重新拍照／上傳照片。':'輸入姓名、挑一個代表你的頭像，完成後就能進入婚禮網站。';
   document.querySelector('[data-tab="checkin"]').textContent=me?'我的資料':'賓客報到';
 }
-function renderLotteryControls(){
-  const status=data.lottery.status,count=data.tickets.length;
-  const [open,close,draw]=$('ad-lottery').querySelectorAll('.actions button');
-  open.disabled=status==='open'||status==='drawn'||status==='drawing';
-  close.disabled=status!=='open';
-  draw.disabled=status!=='closed'||count===0;
-  open.classList.toggle('current-step',status==='open');
-  close.classList.toggle('current-step',status==='closed');
-  draw.classList.toggle('current-step',status==='drawn'||status==='drawing');
-  const message=status==='open'?'現在開放賓客選號。確認大家投完後，按「② 截止選號」。':status==='closed'?(count?'選號已截止，共 '+count+' 張有效彩券。按「③ 開始開獎」。':'選號已截止，目前沒有彩券。請重新開放選號，等至少一位賓客投注。'):'本輪已開獎。要再次進行，請按「重開新一輪」，舊彩券會清空。';
-  $('hostLottoStats').innerHTML='<strong>'+lotteryLabel()+'｜'+count+' 張彩券</strong><span>'+message+'</span>';
+function renderLotteryHistory(){
+  const draws=(data.lottery.draws||[]).filter(draw=>draw.startedAt!==data.lottery.startedAt||drawCount()===6);
+  const markup=draws.map(draw=>'<div class="qaItem"><strong>'+escapeHTML(draw.prizeName||'第 '+draw.index+' 個獎')+'</strong>｜'+(draw.result||[]).map(n=>String(n).padStart(2,'0')).join('、')+'<br>🎉 '+(draw.winners||[]).map(escapeHTML).join('、')+'</div>').join('');
+  if($('hostDrawHistory'))setHTML('hostDrawHistory',markup||'<p class="muted">尚無完成開獎的獎項。</p>');
+  if($('drawHistory'))setHTML('drawHistory',markup?'<h3>本輪得獎紀錄</h3>'+markup:'');
 }
-function render(){if(displayMode){renderSharedProjection();return}const me=data.me;document.body.classList.toggle('needs-checkin',!completeGuest()&&!data.admin);$('checkStatus').textContent=completeGuest()?'✔ '+me.name+'，你已完成報到！':me?'已記下你的姓名，請再選好頭像完成報到。':'請先輸入姓名並選擇頭像。';renderProfileForm(me);$('navProfile').classList.toggle('visible',completeGuest());setHTML('navProfile',completeGuest()?avatarHTML(me.avatarKind,me.avatarValue)+escapeHTML(me.name):'');renderAvatarSelection();$('lottoStatus').textContent=lotteryLabel();$('lottoSelection').classList.toggle('hidden',!!data.myTicket||data.lottery.status!=='open');setHTML('myTicket',data.myTicket?'兌獎本名：<strong>'+escapeHTML(data.myTicket.name)+'</strong><br>您的幸運號碼：<strong>'+data.myTicket.numbers.map(n=>String(n).padStart(2,'0')).join(' · ')+'</strong>'+(data.myTicket.blessing?'<br>您的祝福：'+escapeHTML(data.myTicket.blessing):''):(!me?'報到後才能參與投注。':''));renderNumbers();renderTicketControls();renderDraw('drawBalls');$('drawStatus').textContent=lotteryLabel();setHTML('winners',drawCount()===6&&data.lottery.winners?.length?'<h3>🎉 六碼全中：'+data.lottery.winners.map(escapeHTML).join('、')+'</h3>':'');setHTML('photoGrid',data.photos.length?photoCards(data.admin):'<p class="muted">還沒有照片，成為第一位分享的人！</p>');setHTML('blessingList',data.blessings.slice().reverse().map(b=>'<div class="qaItem"><span class="blessing-author">'+avatarHTML(b.avatarKind,b.avatarValue)+'<strong>'+escapeHTML(b.name)+'</strong></span>：'+escapeHTML(b.text)+'</div>').join('')||'<p class="muted">還沒有留言，快送上第一份祝福。</p>');renderKahoot();$('adminLogin').classList.toggle('hidden',data.admin);$('adminDashboard').classList.toggle('hidden',!data.admin);if(data.admin){setHTML('stats','<p>🎟 已報到：<b>'+data.guests.length+'</b> 位　｜　📸 照片：<b>'+data.photos.length+'</b> 張　｜　💗 祝福：<b>'+data.blessings.length+'</b> 則　｜　🎱 彩券：<b>'+data.tickets.length+'</b> 張</p>');setHTML('attendees','<h3>報到名單</h3>'+data.guests.map(g=>'<span class="pill" style="margin:3px">'+avatarHTML(g.avatarKind,g.avatarValue)+escapeHTML(g.name)+'</span>').join(''));renderMahjongControls();renderLotteryControls();renderProxyControls();setHTML('ticketList',data.tickets.map(t=>'<div class="qaItem">'+escapeHTML(t.name)+'：'+t.numbers.join('、')+' <button class="outline" onclick="editTicketName(\''+escapeHTML(t.id)+'\')">更正本名</button>'+(t.blessing?'<br>💗 '+escapeHTML(t.blessing):'')+'</div>').join('')||'<p class="muted">尚無投注</p>');setHTML('manageBlessings',data.blessings.map(b=>'<div class="qaItem">'+avatarHTML(b.avatarKind,b.avatarValue)+escapeHTML(b.name)+'：'+escapeHTML(b.text)+' <button class="outline" onclick="removeBlessing(\''+b.id+'\')">刪除</button></div>').join('')||'目前無留言');setHTML('managePhotos',photoCards(true)||'目前無照片')}renderProjection()}
-let lastDrawCount=-1;
-setInterval(()=>{if(data.lottery.status==='drawn'){const count=drawCount();renderDraw('drawBalls');$('drawStatus').textContent=lotteryLabel();$('lottoStatus').textContent=lotteryLabel();if(count===6&&lastDrawCount!==6){lastDrawCount=count;render()}else lastDrawCount=count}else lastDrawCount=-1;if(projection==='lotto')renderProjection()},250);
+function renderLotteryControls(){
+  const status=data.lottery.status,count=data.tickets.length,busy=drawBusy||status==='drawing'||status==='drawn'&&Date.now()-data.lottery.startedAt<(data.lottery.durationMs||27600);
+  const [open,close,draw,reset]=$('ad-lottery').querySelectorAll('.actions button');
+  open.disabled=drawBusy||status==='open'||status==='drawn'||status==='drawing';
+  close.disabled=drawBusy||status!=='open';
+  draw.disabled=busy||!['closed','drawn'].includes(status)||count===0||data.lottery.remainingCount===0;
+  draw.textContent=drawBusy?'準備開獎…':status==='drawn'?'④ 開下一個獎（保留彩券）':'③ 開始開獎';
+  if(reset)reset.disabled=busy;if($('drawPrizeName'))$('drawPrizeName').disabled=busy;
+  open.classList.toggle('current-step',status==='open');close.classList.toggle('current-step',status==='closed');draw.classList.toggle('current-step',status==='drawn'||status==='drawing');
+  const message=status==='open'?'現在開放賓客選號。確認大家投完後，按「② 截止選號」。':status==='closed'?(count?'選號已截止，共 '+count+' 張有效彩券。按「③ 開始開獎」。':'選號已截止，目前沒有彩券。請重新開放選號。'):busy?'開獎進行中，請等這個獎的動畫結束。':data.lottery.remainingCount===0?'本輪賓客都已中獎，得獎紀錄與原彩券已保留。':'本獎已開出。輸入下一個獎項名稱，再按「④ 開下一個獎」；保留原彩券，已中獎者不重複抽中。';
+  $('hostLottoStats').innerHTML='<strong>'+lotteryLabel()+'｜'+count+' 張彩券</strong><span>'+message+'</span>';renderLotteryHistory();
+}
+function render(){if(displayMode){renderSharedProjection();return}const me=data.me;document.body.classList.toggle('needs-checkin',!completeGuest()&&!data.admin);$('checkStatus').textContent=completeGuest()?'✔ '+me.name+'，你已完成報到！':me?'已記下你的姓名，請再選好頭像完成報到。':'請先輸入姓名並選擇頭像。';renderProfileForm(me);$('navProfile').classList.toggle('visible',completeGuest());setHTML('navProfile',completeGuest()?avatarHTML(me.avatarKind,me.avatarValue)+escapeHTML(me.name):'');renderAvatarSelection();$('lottoStatus').textContent=lotteryLabel();$('lottoSelection').classList.toggle('hidden',!!data.myTicket||data.lottery.status!=='open');setHTML('myTicket',data.myTicket?'兌獎本名：<strong>'+escapeHTML(data.myTicket.name)+'</strong><br>您的幸運號碼：<strong>'+data.myTicket.numbers.map(n=>String(n).padStart(2,'0')).join(' · ')+'</strong>'+(data.myTicket.blessing?'<br>您的祝福：'+escapeHTML(data.myTicket.blessing):''):(!me?'報到後才能參與投注。':''));renderNumbers();renderTicketControls();renderLotteryHistory();renderDraw('drawBalls');renderHostDraw();$('drawStatus').textContent=lotteryLabel();setHTML('winners',drawCount()===6&&data.lottery.winners?.length?'<h3>🎉 六碼全中：'+data.lottery.winners.map(escapeHTML).join('、')+'</h3>':'');setHTML('photoGrid',data.photos.length?photoCards(data.admin):'<p class="muted">還沒有照片，成為第一位分享的人！</p>');setHTML('blessingList',data.blessings.slice().reverse().map(b=>'<div class="qaItem"><span class="blessing-author">'+avatarHTML(b.avatarKind,b.avatarValue)+'<strong>'+escapeHTML(b.name)+'</strong></span>：'+escapeHTML(b.text)+'</div>').join('')||'<p class="muted">還沒有留言，快送上第一份祝福。</p>');renderKahoot();$('adminLogin').classList.toggle('hidden',data.admin);$('adminDashboard').classList.toggle('hidden',!data.admin);if(data.admin){setHTML('stats','<p>🎟 已報到：<b>'+data.guests.length+'</b> 位　｜　📸 照片：<b>'+data.photos.length+'</b> 張　｜　💗 祝福：<b>'+data.blessings.length+'</b> 則　｜　🎱 彩券：<b>'+data.tickets.length+'</b> 張</p>');setHTML('attendees','<h3>報到名單</h3>'+data.guests.map(g=>'<span class="pill" style="margin:3px">'+avatarHTML(g.avatarKind,g.avatarValue)+escapeHTML(g.name)+'</span>').join(''));renderMahjongControls();renderLotteryControls();renderProxyControls();setHTML('ticketList',data.tickets.map(t=>'<div class="qaItem">'+escapeHTML(t.name)+'：'+t.numbers.join('、')+' <button class="outline" onclick="editTicketName(\''+escapeHTML(t.id)+'\')">更正本名</button>'+(t.blessing?'<br>💗 '+escapeHTML(t.blessing):'')+'</div>').join('')||'<p class="muted">尚無投注</p>');setHTML('manageBlessings',data.blessings.map(b=>'<div class="qaItem">'+avatarHTML(b.avatarKind,b.avatarValue)+escapeHTML(b.name)+'：'+escapeHTML(b.text)+' <button class="outline" onclick="removeBlessing(\''+b.id+'\')">刪除</button></div>').join('')||'目前無留言');setHTML('managePhotos',photoCards(true)||'目前無照片')}renderProjection()}
+let lastDrawCount=-1,lastDrawStartedAt=0;
+setInterval(()=>{if(data.lottery.startedAt!==lastDrawStartedAt){lastDrawStartedAt=data.lottery.startedAt;lastDrawCount=-1}if(data.lottery.status==='drawn'){const count=drawCount();renderDraw('drawBalls');renderHostDraw();$('drawStatus').textContent=lotteryLabel();$('lottoStatus').textContent=lotteryLabel();if(count===6&&lastDrawCount!==6){lastDrawCount=count;render()}else lastDrawCount=count}else lastDrawCount=-1;if(projection==='lotto')renderProjection();if(data.admin&&data.lottery.status==='drawn')renderLotteryControls()},250);
 function pollDelay(){if(document.hidden)return displayMode?10000:120000;return displayMode||projection||hostMode?1000:$('games').classList.contains('active')?3000:$('wall').classList.contains('active')?8000:60000}
 async function poll(){
   if(pollRunning)return;

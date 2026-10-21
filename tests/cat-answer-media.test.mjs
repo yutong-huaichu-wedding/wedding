@@ -45,7 +45,7 @@ function stage(timers={setTimeout:()=>1,clearTimeout:()=>{}}){
  const picture={dataset:{},child:null,_html:'',set innerHTML(value){this._html=value;this.child=value.startsWith('<video')?{...player(),kind:'video'}:value.startsWith('<img')?{kind:'img',src:'',getAttribute(){return this.src},cloneNode(){return {...this}},replaceWith(next){picture.child=next}}:null},get innerHTML(){return this._html},querySelector(tag){return this.child?.kind===tag?this.child:null}};
  picture.contains=node=>picture.child===node;picture.append=node=>{picture.child=node};
  const nodes={picture,answerBox:{append(node){if(picture.child===node)picture.child=null}},soundPlayer:{...player(),kind:'video',id:'soundPlayer',setAttribute(){}}};const ctx=vm.createContext({document:{},nodes,...timers});
- vm.runInContext("const $=id=>nodes[id]??(nodes[id]={});let liveState,lastStageKey='',lastPlayed=-1,projectionVisible=true;"+app.slice(app.indexOf('function stopSound()'),app.indexOf('function publish(')),ctx);
+ vm.runInContext("const $=id=>nodes[id]??(nodes[id]={});let liveState,lastStageKey='',lastPlayed=-1,projectionVisible=true;let screenMode=false,hostPreviewSound=false;"+app.slice(app.indexOf('function stopSound()'),app.indexOf('function publish(')),ctx);
  return {ctx,nodes,picture};
 }
 test('reveal renders video in main picture, plays only its soundtrack, then hides and stops on reset',async()=>{
@@ -108,4 +108,36 @@ test('stalled preload retries silently; a revealed video resumes after retry and
  ctx.renderStage({...state,revealed:true,answerMedia:'blob:movie',answerMediaType:'video/mp4',serial:2},true);await Promise.resolve();
  player.onwaiting();run();assert.match(nodes.playbackStatus.textContent,/重試/);run();await Promise.resolve();
  assert.equal(player.plays,2);assert.equal(player.controls,false);player.oncanplay();assert.equal(pending.size,0);
+});
+
+test('host answer plays locally even when cloud sync is enabled, and still publishes the shared answer',async()=>{
+ const {ctx,nodes,picture}=stage();ctx.projectionState=projectionState;ctx.q=question();
+ vm.runInContext("let index=0,deck=[q],revealed=true,playSerial=42;const current=()=>q,src=b=>b.type.startsWith('video/')?'blob:answer':'blob:question';let sent=[],messages=[];const cloud={enabled:true,publish(work){sent.push(work)}},channel={postMessage(work){messages.push(work)}};function connected(){return true}",ctx);
+ vm.runInContext(app.slice(app.indexOf('function publish('),app.indexOf('function renderDeck(')),ctx);
+ ctx.publish(true);await Promise.resolve();assert.equal(picture.child,nodes.soundPlayer);assert.equal(nodes.soundPlayer.plays,1);assert.equal(nodes.soundPlayer.muted,true);assert.equal(nodes.soundPlayer.src,'blob:answer');assert.equal(vm.runInContext('sent[0].autoplay',ctx),true);assert.equal(vm.runInContext('messages[0].state.revealed',ctx),true);
+ vm.runInContext('playSerial++',ctx);ctx.publish(true);await Promise.resolve();assert.equal(nodes.soundPlayer.plays,2);
+ vm.runInContext('revealed=false',ctx);ctx.publish();assert.equal(picture.child.kind,'img');assert.equal(picture.child.src,'blob:question');assert.equal(nodes.soundPlayer.hidden,true);
+});
+test('host preview can play with phone sound and headphone test remains audible',async()=>{
+ const {ctx,nodes}=stage();const state={key:'a',index:0,total:1,revealed:true,serial:1,answerMedia:'blob:movie',answerMediaType:'video/mp4'};
+ ctx.renderStage(state,true);await Promise.resolve();assert.equal(nodes.soundPlayer.muted,true);
+ vm.runInContext('hostPreviewSound=true',ctx);ctx.renderStage({...state,serial:2},true);await Promise.resolve();assert.equal(nodes.soundPlayer.muted,false);
+ vm.runInContext('hostPreviewSound=false',ctx);await ctx.playSound(state,true);assert.equal(nodes.soundPlayer.muted,false);
+});
+test('projection playback is audible regardless of the host preview sound setting',async()=>{
+ const {ctx,nodes}=stage();vm.runInContext('screenMode=true;hostPreviewSound=false',ctx);ctx.renderStage({key:'a',index:0,total:1,revealed:true,serial:1,answerMedia:'blob:movie',answerMediaType:'video/mp4'},true);await Promise.resolve();assert.equal(nodes.soundPlayer.plays,1);assert.equal(nodes.soundPlayer.muted,false);
+});
+test('enabling cloud sync does not stop a playing host preview',async()=>{
+ const {ctx,nodes}=stage();ctx.renderStage({key:'a',total:1,index:0,revealed:true,serial:1,answerMedia:'blob:movie',answerMediaType:'video/mp4'},true);await Promise.resolve();const pauses=nodes.soundPlayer.pauses;
+ vm.runInContext("const cloud={enable:async()=>{}};function publish(){};function notice(){}",ctx);
+ vm.runInContext(app.slice(app.indexOf('async function startCloud('),app.indexOf('if(screenMode){\n  document.body')),ctx);await ctx.startCloud(false);assert.equal(nodes.soundPlayer.pauses,pauses);assert.equal(nodes.soundPlayer.plays,1);
+});
+
+
+test('phone sound toggle changes only local playback and does not replay the projector',async()=>{
+ const {ctx,nodes}=stage();ctx.renderStage({key:'a',total:1,index:0,revealed:true,serial:1,answerMedia:'blob:movie',answerMediaType:'video/mp4'},true);await Promise.resolve();
+ vm.runInContext("let revealed=true;function publish(){throw Error('local sound must not publish')}",ctx);
+ const start=app.indexOf("$('hostPreviewSound').onchange=");vm.runInContext(app.slice(start,app.indexOf("\n  $('viewHostPreview')",start)),ctx);
+ nodes.hostPreviewSound.checked=true;nodes.hostPreviewSound.onchange();await Promise.resolve();assert.equal(nodes.soundPlayer.muted,false);assert.equal(nodes.soundPlayer.plays,2);
+ nodes.hostPreviewSound.checked=false;nodes.hostPreviewSound.onchange();await Promise.resolve();assert.equal(nodes.soundPlayer.muted,true);
 });

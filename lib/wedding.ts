@@ -22,6 +22,8 @@ export const guest = async (request: Request) => { const token = request.headers
 export const sameOrigin = (request: Request) => { const origin = request.headers.get('origin'); return !origin || origin === new URL(request.url).origin; };
 export const sessionCookie = (request: Request, token: string, maxAge: number) => 'wedding_admin=' + token + '; HttpOnly; SameSite=Strict; Path=/; Max-Age=' + maxAge + (new URL(request.url).protocol === 'https:' ? '; Secure' : '');
 export const validNumbers = (value: unknown): value is number[] => Array.isArray(value) && value.length === 6 && value.every(n => Number.isInteger(n) && n >= 1 && n <= 49) && new Set(value).size === 6;
+export const lotteryDrawDuration = 15600;
+const publicLottery = (lottery: any) => ({ ...lottery, draws: (lottery.draws || []).map(({ winnerIds: _ids, ...entry }: any) => entry) });
 export const lotteryDefault = { status: 'open', result: [] as number[], startedAt: 0 };
 export const quizDefault = { index: -1, open: false };
 export const mahjongDefault = { phase: 'guess' };
@@ -78,7 +80,7 @@ export async function state(request: Request) {
     mahjong, kahoot, projection,
     admin, me: me ? { id: me.id, name: me.name, avatarKind: me.avatarKind, avatarValue: me.avatarValue } : null,
     blessings: blessings.reverse(), photos: photos.reverse().map(p => { const { guestId, ...photo } = p; return { ...photo, canDelete: admin || !!me && guestId === me.id, url: '/api/photo/' + p.id }; }),
-    lottery: { ...lotto, winners, ticketCount: parsedTickets.length },
+    lottery: { ...publicLottery(lotto), winners, ticketCount: parsedTickets.length, remainingCount: parsedTickets.filter(t => !(lotto.draws || []).some((draw: any) => (draw.winnerIds || []).includes(t.guestId))).length },
     myTicket: me ? parsedTickets.find(t => t.guestId === me.id) || null : null,
     quiz: { ...publicQuiz, joined, eligible: !!me && roster.includes(me.id), participantCount: Number(participantCount?.count || 0), answeredCount: Number(answeredCount?.count || 0), totalParticipants: roster.length, question: currentQuestion, total: questions.length, myAnswer: myAnswer?.choice ?? null, myScore: Number(myScore?.score || 0) * 10 },
     ...(admin ? { guests, tickets: parsedTickets, questions: questions.map(q => ({ ...q, options: JSON.parse(q.options) })), scores } : {})
@@ -93,7 +95,7 @@ export async function readProjection() {
   ]);
   const winners = lottery.status === 'drawn' ? (await all('SELECT name FROM tickets WHERE numbers=?', JSON.stringify(lottery.result))).map(row => row.name) : [];
   const blessings = projection.mode === 'wall' ? await all('SELECT b.id,b.name,b.text,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue FROM blessings b LEFT JOIN guests g ON g.id=b.guest_id ORDER BY b.created_at DESC LIMIT 150') : [];
-  return good({ projection, mahjong, lottery: { ...lottery, winners }, kahoot, blessings });
+  return good({ projection, mahjong, lottery: { ...publicLottery(lottery), winners }, kahoot, blessings });
 }
 
 export async function action(request: Request) {
@@ -254,6 +256,14 @@ export async function action(request: Request) {
     await setSetting('projection', { mode: body.mode, session: '' });
     return good({ ok: true });
   }
+  if (type === 'mahjongQuiz') {
+    if (!Number.isInteger(body.index) || body.index < 0 || body.index >= 5 || !['question', 'answer'].includes(body.phase)) return bad('請選擇第 1～5 題及出題／解答畫面');
+    await db().batch([
+      db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('mahjong', JSON.stringify({ kind: 'quiz', index: body.index, phase: body.phase })),
+      db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('projection', JSON.stringify({ mode: 'mahjong', session: '' }))
+    ]);
+    return good({ ok: true });
+  }
   if (type === 'mahjongPhase') {
     if (!['guess', 'correct', 'wrong'].includes(body.phase)) return bad('請選擇猜牌、答對或答錯畫面');
     await db().batch([
@@ -279,22 +289,53 @@ export async function action(request: Request) {
     return good({ ok: true });
   }
   if (type === 'draw') {
-    const lottery = await setting('lottery', lotteryDefault);
-    if (lottery.status !== 'closed') return bad(lottery.status === 'open' ? '請先截止選號，再開始開獎' : '本輪已開獎');
-    await setSetting('lottery', { ...lottery, status: 'drawing' });
-    const tickets = await all('SELECT numbers FROM tickets ORDER BY created_at');
-    if (!tickets.length) { await setSetting('lottery', { ...lottery, status: 'closed' }); return bad('至少要有一張有效彩券'); }
-    const random = new Uint32Array(1);
-    const limit = Math.floor(4294967296 / tickets.length) * tickets.length;
-    do { crypto.getRandomValues(random); } while (random[0] >= limit);
-    const picked = tickets[random[0] % tickets.length];
-    await setSetting('lottery', { status: 'drawn', result: JSON.parse(picked.numbers), startedAt: now() });
-    await setSetting('projection', { mode: 'lotto', session: '' });
-    return good({ ok: true });
+    const stored = await first("SELECT value FROM settings WHERE key='lottery'");
+    if (!stored) return bad('請先截止選號，再開始開獎');
+    const lottery = JSON.parse(stored.value);
+    if (!['closed','drawn'].includes(lottery.status)) return bad(lottery.status === 'open' ? '請先截止選號，再開始開獎' : '正在開獎，請稍候');
+    if (lottery.status === 'drawn' && now() - Number(lottery.startedAt) < Number(lottery.durationMs || 27600)) return bad('請等這個獎的開獎動畫結束，再開下一個獎');
+    const tickets = await all('SELECT id,guest_id AS guestId,name,numbers FROM tickets ORDER BY created_at');
+    if (!tickets.length) return bad('至少要有一張有效彩券');
+    const draws = Array.isArray(lottery.draws) ? [...lottery.draws] : [];
+    // Preserve an already completed draw from a previous deployment.
+    if (!draws.length && lottery.status === 'drawn' && Array.isArray(lottery.result)) {
+      const oldWinners = tickets.filter(t => t.numbers === JSON.stringify(lottery.result));
+      draws.push({ id: 'legacy-' + lottery.startedAt, index: 1, prizeName: lottery.prizeName || '第 1 個獎', result: lottery.result, startedAt: lottery.startedAt, winners: oldWinners.map(t => t.name), winnerIds: oldWinners.map(t => t.guestId) });
+    }
+    const awarded = new Set(draws.flatMap((draw: any) => draw.winnerIds || []));
+    const eligible = tickets.filter(t => !awarded.has(t.guestId));
+    if (!eligible.length) return bad('本輪賓客都已中獎，沒有尚未中獎的彩券；原投注與得獎紀錄已保留');
+    const prizeName = typeof body.prizeName === 'string' ? clean(body.prizeName, 30) : '';
+    const lock = JSON.stringify({ ...lottery, status: 'drawing' });
+    const claimed = await run("UPDATE settings SET value=? WHERE key='lottery' AND value=?", lock, stored.value);
+    if (!claimed.meta.changes) return bad('其他主持人已更新開獎狀態，請稍候重新確認', 409);
+    try {
+      const random = new Uint32Array(1), limit = Math.floor(4294967296 / eligible.length) * eligible.length;
+      do { crypto.getRandomValues(random); } while (random[0] >= limit);
+      const picked = eligible[random[0] % eligible.length], result = JSON.parse(picked.numbers);
+      const winners = eligible.filter(t => t.numbers === picked.numbers), startedAt = now();
+      const draw = { id: crypto.randomUUID(), index: draws.length + 1, prizeName: prizeName || '第 ' + (draws.length + 1) + ' 個獎', result, startedAt, winners: winners.map(t => t.name), winnerIds: winners.map(t => t.guestId) };
+      const next = { status: 'drawn', result, startedAt, durationMs: lotteryDrawDuration, prizeName: draw.prizeName, drawIndex: draw.index, draws: [...draws, draw] };
+      await db().batch([
+        db().prepare("UPDATE settings SET value=? WHERE key='lottery' AND value=?").bind(JSON.stringify(next), lock),
+        db().prepare("INSERT INTO settings (key,value) VALUES ('projection',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify({ mode: 'lotto', session: '' }))
+      ]);
+      return good({ ok: true });
+    } catch (error) {
+      await run("UPDATE settings SET value=? WHERE key='lottery' AND value=?", stored.value, lock);
+      throw error;
+    }
   }
   if (type === 'lottoReset') {
-    await run('DELETE FROM tickets');
-    await setSetting('lottery', lotteryDefault);
+    const stored = await first("SELECT value FROM settings WHERE key='lottery'");
+    const lottery = stored ? JSON.parse(stored.value) : lotteryDefault;
+    if (lottery.status === 'drawing' || lottery.status === 'drawn' && now() - Number(lottery.startedAt) < Number(lottery.durationMs || 27600)) return bad('開獎進行中，請等動畫結束再重開新一輪');
+    if (!stored) {
+      await db().batch([db().prepare("INSERT INTO settings (key,value) VALUES ('lottery',?) ON CONFLICT(key) DO NOTHING").bind(JSON.stringify(lotteryDefault)),db().prepare("DELETE FROM tickets WHERE EXISTS (SELECT 1 FROM settings WHERE key='lottery' AND value=?)").bind(JSON.stringify(lotteryDefault))]);
+    } else {
+      const results = await db().batch([db().prepare("DELETE FROM tickets WHERE EXISTS (SELECT 1 FROM settings WHERE key='lottery' AND value=?)").bind(stored.value),db().prepare("UPDATE settings SET value=? WHERE key='lottery' AND value=?").bind(JSON.stringify(lotteryDefault), stored.value)]);
+      if (!results[1].meta.changes) return bad('開獎狀態已更新，未清空彩券，請重新確認', 409);
+    }
     return good({ ok: true });
   }
   if (type === 'questionAdd' || type === 'questionEdit') {

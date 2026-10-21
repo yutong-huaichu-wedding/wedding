@@ -196,3 +196,45 @@ test('offline blessing failure rolls back both registration and ticket',async()=
  assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM guests')).n),3);
  assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM tickets')).n),0);
 });
+
+async function finishLotteryDraw(){const lottery=await api.setting('lottery',{});lottery.startedAt=Date.now()-60000;if(lottery.draws?.length)lottery.draws.at(-1).startedAt=lottery.startedAt;await api.setSetting('lottery',lottery)}
+async function threeTickets(){for(const [i,token]of ['a','b','c'].entries())await ok('ticket',{realName:'賓客'+token,numbers:Array.from({length:6},(_,n)=>n+1+i*6)},token);await ok('lottoState',{status:'closed'})}
+test('one round supports multiple named prizes without changing tickets or repeating winners',async()=>{
+ await threeTickets();const original=await api.all('SELECT * FROM tickets ORDER BY id');
+ await ok('draw',{prizeName:'二獎'});let s=await state('admin');assert.equal(s.lottery.draws.length,1);assert.equal(s.lottery.prizeName,'二獎');assert.equal(s.lottery.durationMs,15600);assert.equal(s.lottery.remainingCount,2);
+ assert.equal((await act('draw',{prizeName:'頭獎'})).status,400);assert.equal((await act('lottoReset')).status,400);
+ await finishLotteryDraw();await ok('draw',{prizeName:'頭獎'});await finishLotteryDraw();await ok('draw',{prizeName:'加碼獎'});await finishLotteryDraw();
+ s=await state('admin');assert.equal(s.lottery.draws.length,3);assert.equal(new Set(s.lottery.draws.flatMap(d=>d.winners)).size,3);assert.equal(s.lottery.remainingCount,0);
+ assert.deepEqual(await api.all('SELECT * FROM tickets ORDER BY id'),original);
+ assert.equal((await act('draw')).status,400);assert.equal((await state('a')).lottery.draws[0].winnerIds,undefined);
+ const projected=await (await api.readProjection()).json();assert.equal(projected.lottery.draws.length,3);assert.equal(projected.lottery.draws[0].winnerIds,undefined);
+ await ok('lottoReset');assert.equal((await state()).lottery.draws.length,0);assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM tickets')).n),0);
+});
+test('a legacy completed result is preserved and all guests matching it are excluded from later prizes',async()=>{
+ const numbers=[1,2,3,4,5,6];for(const token of ['a','b'])await ok('ticket',{realName:'賓客'+token,numbers},token);
+ await ok('ticket',{realName:'賓客c',numbers:[7,8,9,10,11,12]},'c');
+ await api.setSetting('lottery',{status:'drawn',result:numbers,startedAt:Date.now()-60000});await ok('draw',{prizeName:'加碼獎'});
+ const s=await state('admin');assert.equal(s.lottery.draws.length,2);assert.equal(s.lottery.draws[0].winners.length,2);assert.deepEqual(s.lottery.draws[1].winners,['賓客c']);assert.equal(s.lottery.remainingCount,0);
+});
+test('simultaneous host draw commands only publish one prize',async()=>{
+ await threeTickets();const results=await Promise.all([act('draw'),act('draw')]);assert.equal(results.filter(r=>r.status===200).length,1);assert.ok(results.some(r=>r.status===409||r.status===400));
+ assert.equal((await state('admin')).lottery.draws.length,1);assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM tickets')).n),3);
+});
+test('failed draw publication releases its lock and keeps every ticket',async()=>{
+ await threeTickets();const originalBatch=env.DB.batch;env.DB.batch=async()=>{throw Error('test write failure')};
+ await assert.rejects(()=>act('draw'));env.DB.batch=originalBatch;assert.equal((await api.setting('lottery',{})).status,'closed');
+ assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM tickets')).n),3);await ok('draw');assert.equal((await state('admin')).lottery.draws.length,1);
+});
+
+test('host listening quiz synchronizes question, answer and original touch game without changing other activities',async()=>{
+ const before=await state('a');
+ for(const index of [0,1,2,3,4])for(const phase of ['question','answer']){
+  assert.equal((await act('mahjongQuiz',{index,phase},'a')).status,403);
+  await ok('mahjongQuiz',{index,phase});const phone=await state('admin'),screen=await (await api.readProjection()).json();
+  assert.deepEqual(phone.mahjong,{kind:'quiz',index,phase});assert.deepEqual(screen.mahjong,phone.mahjong);assert.equal(screen.projection.mode,'mahjong');
+ }
+ for(const fields of [{index:-1,phase:'question'},{index:5,phase:'answer'},{index:'1',phase:'question'},{index:1.5,phase:'answer'},{index:0,phase:'bad'}])assert.equal((await act('mahjongQuiz',fields)).status,400);
+ assert.equal((await act('mahjongQuiz',{index:0,phase:'question'},'')).status,403);
+ await ok('mahjongPhase',{phase:'guess'});assert.deepEqual((await state()).mahjong,{phase:'guess'});
+ const after=await state();for(const key of ['lottery','blessings','photos','quiz'])assert.deepEqual(after[key],before[key]);
+});

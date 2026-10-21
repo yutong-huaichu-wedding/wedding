@@ -6,6 +6,7 @@ import vm from 'node:vm';
 function setup(){
  const elements=new Map();
  const element=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',value:'',dataset:{},setAttribute(){},disabled:false,style:{},classList:{add(){},remove(){},toggle(){},contains(){return false}},addEventListener(){},append(){},querySelectorAll(){return []}});return elements.get(id)};
+ const lotteryButtons=Array.from({length:4},(_,i)=>element('lotteryButton'+i));element('ad-lottery').querySelectorAll=()=>lotteryButtons;
  const document={addEventListener(){},getElementById:element,querySelector:element,querySelectorAll(){return []},createElement:element,body:element('body'),hidden:false};
  const ctx=vm.createContext({document,window:{addEventListener(){}},localStorage:{getItem(){return null}},setTimeout(){},setInterval(){},clearTimeout(){},console,URLSearchParams,location:{search:''},fetch:()=>new Promise(()=>{}),URL,Blob,confirm:()=>true});
  vm.runInContext(readFileSync(new URL('../public/app.js',import.meta.url),'utf8'),ctx);
@@ -89,4 +90,50 @@ test('offline proxy retains failed drafts, prevents double submit and confirms a
  await run('proxyTicket()');assert.equal(run('sent.length'),1);assert.equal(run('sent[0].offline'),true);assert.equal(run('sent[0].guestId'),undefined);assert.equal(element('proxySubmit').disabled,true);
  run('finish(null)');await run('sending');assert.equal(element('proxyRealName').value,'李阿公');assert.equal(run('proxyPicks.length'),6);
  run('globalThis.sending=proxyTicket();finish({ok:true})');await run('sending');assert.match(element('proxyReceipt').textContent,/李阿公.*01、02、03、04、05、06/);assert.equal(element('proxyRealName').value,'');assert.equal(element('proxyBlessing').value,'');assert.equal(run('proxyGuestId'),'offline');
+});
+
+test('projecting the lottery never renders a second machine hidden in the original page',()=>{
+ const {run,element}=setup();element('games').classList.contains=()=>true;
+ run("globalThis.machines=[];globalThis.stopped=[];window.WeddingLottery={count:()=>0,mount(target){machines.push(target);return {update(){}}},unmount(target){stopped.push(target)}};game='lotto';renderDraw('drawBalls')");
+ assert.equal(run('machines.length'),1);run("openProjection('lotto');renderDraw('drawBalls')");assert.equal(run('machines.length'),2);assert.equal(run('machines[1]'),element('projBalls'));assert.ok(run('stopped.includes($(\"drawBalls\"))'));
+ run('closeProjection()');assert.equal(run('machines.length'),3);assert.equal(run('machines[2]'),element('drawBalls'));
+});
+test('completed lottery offers another prize and shows retained named award history',()=>{
+ const {run,element}=setup();const buttons=Array.from({length:4},(_,i)=>element('lotteryButton'+i));element('ad-lottery').querySelectorAll=()=>buttons;
+ run("data.admin=true;data.tickets=[{guestId:'a'},{guestId:'b'}];data.lottery={status:'drawn',result:[1,2,3,4,5,6],startedAt:Date.now()-60000,durationMs:15600,remainingCount:1,draws:[{index:1,prizeName:'二獎',result:[1,2,3,4,5,6],startedAt:1,winners:['王阿姨']}]};renderLotteryControls()");
+ assert.equal(buttons[2].disabled,false);assert.match(buttons[2].textContent,/開下一個獎.*保留彩券/);assert.match(element('hostDrawHistory').innerHTML,/二獎.*王阿姨/s);
+ run('data.lottery.remainingCount=0;renderLotteryControls()');assert.equal(buttons[2].disabled,true);assert.match(element('hostLottoStats').innerHTML,/都已中獎/);
+});
+
+test('phone host opens and watches a draw in controls without entering projection',async()=>{
+ const {run,element}=setup();element('admin').classList.contains=()=>true;
+ run("data.admin=true;globalThis.machines=[];window.WeddingLottery={count:()=>0,mount(target){machines.push(target);return {update(){}}},unmount(){}};globalThis.sent=[];act=async(type,fields)=>{sent.push({type,...fields});data.lottery={status:'drawn',result:[1,2,3,4,5,6],startedAt:Date.now(),winners:['王小明']};return {ok:true}}");
+ element('drawPrizeName').value='頭獎';await run('beginDraw()');
+ assert.equal(run('sent[0].type'),'draw');assert.equal(run('sent[0].prizeName'),'頭獎');assert.equal(run('projection'),'');assert.equal(run('machines.length'),1);assert.equal(run('machines[0]'),element('hostDrawBalls'));assert.equal(element('drawPrizeName').value,'');
+ run('window.WeddingLottery.count=()=>6;renderHostDraw()');assert.match(element('hostDrawStatus').textContent,/恭喜 王小明/);
+});
+test('failed phone draw retains draft and does not open a machine or projection',async()=>{
+ const {run,element}=setup();run('data.admin=true;act=async()=>null');element('drawPrizeName').value='加碼獎';await run('beginDraw()');assert.equal(element('drawPrizeName').value,'加碼獎');assert.equal(run('projection'),'');assert.equal(run('drawBusy'),false);
+});
+test('host may visit guest lottery page without having registered as a guest',()=>{
+ const {run,element,ctx}=setup();ctx.window.scrollTo=()=>{};const selected=[];element('games').id='games';element('games').classList.toggle=(name,on)=>selected.push({name,on});ctx.document.querySelectorAll=selector=>selector==='.panel'?[element('games')]:[];
+ run("data.admin=true;data.me=null;go('games');setGame('lotto')");assert.ok(selected.some(x=>x.name==='active'&&x.on));assert.equal(run('game'),'lotto');
+});
+test('normal phone lottery follows shared draw data while hidden host and projection machines stay stopped',()=>{
+ const {run,element}=setup();element('games').classList.contains=()=>true;
+ run("game='lotto';data.projection={mode:'lotto'};globalThis.machines=[];globalThis.stopped=[];window.WeddingLottery={count:()=>0,mount(target){machines.push(target);return {update(value){globalThis.seen=value}}},unmount(target){stopped.push(target)}};data.lottery={status:'drawn',startedAt:123,result:[1,2,3,4,5,6]};renderDraw('drawBalls');renderHostDraw()");
+ assert.equal(run('machines.length'),1);assert.equal(run('machines[0]'),element('drawBalls'));assert.equal(run('seen.startedAt'),123);assert.equal(run('projection'),'');assert.ok(run('stopped.includes($("hostDrawBalls"))'));
+ element('admin').classList.contains=()=>true;run("data.admin=true;openProjection('lotto');renderHostDraw()");assert.equal(run('machines.length'),2);assert.equal(run('machines[1]'),element('projBalls'));assert.ok(run('stopped.includes($("drawBalls"))'));assert.ok(run('stopped.includes($("hostDrawBalls"))'));
+});
+
+test('mahjong listening preview and projection switch questions and hide answers when returning to touch game',()=>{
+ const {run,ctx,element}=setup();vm.runInContext(readFileSync(new URL('../public/mahjong-quiz.js',import.meta.url),'utf8'),ctx);
+ run("data.mahjong={kind:'quiz',index:4,phase:'question'};renderMahjongControls();openProjection('mahjong')");assert.match(element('projMessage').innerHTML,/找出所有聽牌/);assert.doesNotMatch(element('projMessage').innerHTML,/class="listen-answer"/);assert.equal(element('mahjongQuizNext').disabled,true);
+ run("data.mahjong.phase='answer';renderMahjongControls();renderProjection()");assert.match(element('projMessage').innerHTML,/class="listen-answer"/);assert.match(element('mahjongQuizPreview').innerHTML,/二二／三四五／六七八/);
+ run("data.mahjong={phase:'correct'};renderProjection()");assert.match(element('projMessage').innerHTML,/答對了/);
+ run("data.mahjong={kind:'quiz',index:4,phase:'answer'};renderProjection()");assert.match(element('projMessage').innerHTML,/class="listen-answer"/);
+ run("data.mahjong={kind:'quiz',index:0,phase:'question'};renderMahjongControls();renderProjection()");assert.match(element('projMessage').innerHTML,/還缺哪一張/);assert.doesNotMatch(element('projMessage').innerHTML,/class="listen-answer"/);assert.equal(element('mahjongQuizPrev').disabled,true);
+});
+test('phone listening commands preserve manual pacing and prevent overlapping requests',async()=>{
+ const {run}=setup();run("globalThis.sent=[];globalThis.release=null;act=(type,fields)=>{sent.push({type,...fields});return new Promise(resolve=>release=resolve)};globalThis.pending=setMahjongQuiz(2)");await run("setMahjongQuiz(2,'answer')");assert.equal(run('sent.length'),1);assert.equal(run('sent[0].phase'),'question');run('release({ok:true})');await run('pending');run("act=async(type,fields)=>{sent.push({type,...fields});return {ok:true}}");await run("setMahjongQuiz(2,'answer')");assert.equal(run('sent[1].phase'),'answer');assert.equal(run('projection'),'');
 });

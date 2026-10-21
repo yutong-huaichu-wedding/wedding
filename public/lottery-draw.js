@@ -1,6 +1,6 @@
 /* Shared timestamp drives every screen; the machine never chooses a result. */
 (function(global){
-  const INTRO=2400,STEP=4200,REVEAL=.8,instances=new WeakMap();let serial=0;
+  const INTRO=1200,STEP=2400,REVEAL=.8,instances=new WeakMap();let serial=0;
   function frame(lottery,now=Date.now()){
     const numbers=lottery.result||[];
     if(lottery.status!=='drawn'||numbers.length!==6)return {phase:'idle',count:0,index:0,progress:0,elapsed:0};
@@ -48,8 +48,9 @@
     const doc=options.document||document,clock=options.clock||Date.now,raf=options.requestAnimationFrame||global.requestAnimationFrame?.bind(global),caf=options.cancelAnimationFrame||global.cancelAnimationFrame?.bind(global);
     const html=(tag,cls,text)=>{const e=doc.createElement(tag);e.className=cls;if(text!==undefined)e.textContent=text;return e};
     const root=html('section','lottery-machine lottery-studio'),heading=html('div','lottery-machine-heading','幸福大樂透・現場開獎'),canvas=html('canvas','lottery-machine-canvas'),status=html('p','lottery-machine-status','等候主持人開獎');
-    root.setAttribute('aria-label','紅球氣流式樂透開獎機');canvas.width=1000;canvas.height=600;canvas.setAttribute('aria-hidden','true');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
-    const ctx=canvas.getContext?.('2d')||null,reduced=global.matchMedia?.('(prefers-reduced-motion: reduce)').matches||false;
+    root.setAttribute('aria-label','紅球氣流式樂透開獎機');const renderScale=(target.clientWidth||1000)<620?.72:1;canvas.width=Math.round(1000*renderScale);canvas.height=Math.round(600*renderScale);canvas.setAttribute('aria-hidden','true');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+    let ctx=canvas.getContext?.('2d')||null;const reduced=global.matchMedia?.('(prefers-reduced-motion: reduce)').matches||false;
+    ctx?.setTransform(renderScale,0,0,renderScale,0,0);
     const results=html('ol','lottery-results'),resultNodes=Array.from({length:6},(_,i)=>{const li=html('li','lottery-result'),label=html('small','','第 '+(i+1)+' 顆'),number=html('strong','','—');li.append(label,number);results.append(li);return {li,number}});
     root.append(heading,canvas,status,results);target.replaceChildren(root);target.classList.add('lottery-machine-host');
     let lottery={status:'open',result:[]},timer=null,destroyed=false,lastStatus='',lastPaint=0,physics=createPhysics(),identity='',intakeIndex=-1,intakeOrigin=[206,400];
@@ -95,9 +96,15 @@
       const points=[intakeOrigin,[206,intakeOrigin[1]],[206,99],[224,82],[435,82],[460,107],[460,320]],weights=[.13,.36,.04,.25,.06,.16];let t=Math.max(0,Math.min(1,(progress-.34)/.46));
       for(let i=0;i<weights.length;i++){if(t<=weights[i]||i===weights.length-1){const f=Math.min(1,t/weights[i]);return [points[i][0]+(points[i+1][0]-points[i][0])*f,points[i][1]+(points[i+1][1]-points[i][1])*f]}t-=weights[i]}
     }
+    let backLayer=null,frontLayer=null,layerState='';
+    function layer(draw,bounds={x:0,y:0,width:1000,height:600}){
+      const surface=doc.createElement('canvas');surface.width=bounds.width;surface.height=bounds.height;
+      const previous=ctx;ctx=surface.getContext('2d');ctx.translate(-bounds.x,-bounds.y);try{draw()}finally{ctx=previous}return surface;
+    }
     function studio(state){
       if(!ctx)return;
-      ctx.clearRect(0,0,1000,600);
+      const key=state.phase==='idle'?'idle':state.phase==='complete'?'complete':'running';
+      if(!backLayer||layerState!==key){backLayer=layer(()=>{
       const backdrop=ctx.createRadialGradient(440,130,10,500,320,680);backdrop.addColorStop(0,'#1b3850');backdrop.addColorStop(.6,'#0b1828');backdrop.addColorStop(1,'#040912');ctx.fillStyle=backdrop;ctx.fillRect(0,0,1000,600);
       for(let i=0;i<12;i++){ctx.fillStyle=i%2?'#c6e7f603':'#c6e7f608';ctx.fillRect(i*90,0,1,600)}
       label('AIR MIX LOTTERY',44,32,14,'#e8f0f6');label('TUNG  /  CHU     12.12',954,32,12,'#9cafbf','right');
@@ -113,25 +120,36 @@
       // Acrylic cylinder: back wall, chrome caps, then depth-sorted solids.
       const glass=linear(94,0,320,0,[[0,'#b5e6f030'],[.06,'#e8faff13'],[.3,'#6c9fad06'],[.65,'#bccfd909'],[.94,'#ebffff2e'],[1,'#c8eaf04a']]);
       ctx.fillStyle=glass;ctx.fillRect(94,135,224,308);ellipse(206,135,112,24,'#8ca9b52b');ellipse(206,442,112,24,'#0b131ce0');
+      // Broadcast close-up: black receiving channel, glossy red ball and repeated white numbers.
+      rect(505,71,453,339,12,linear(505,71,958,410,[[0,'#7b8b98'],[.015,'#151e28'],[.985,'#0b1118'],[1,'#7f919e']]),'#acc4d93d');
+      rect(514,80,435,321,7,linear(514,80,949,400,[[0,'#182029'],[.4,'#020407'],[1,'#10151c']]));
+      ctx.save();ctx.beginPath();ctx.rect(515,80,433,320);ctx.clip();
+      rect(520,299,420,56,7,linear(0,299,0,355,[[0,'#050608'],[.3,'#2b3035'],[.5,'#080b0e'],[1,'#010203']]));
+      ctx.restore();
+      // A physical six-ball receiving rack, separate from the readable number strip.
+      label('DRAWN BALLS',516,443,11,'#adbfcc');rect(507,460,451,96,9,linear(0,460,0,556,[[0,'#34424e'],[.08,'#070b10'],[.85,'#121b23'],[1,'#53636e']]),'#a2b6c13d');
+      rect(518,477,429,54,15,'#020609');
+      rect(443,309,37,24,4,'#03060a','#8a9ca55e');
+      label('HAPPINESS   /   2026.12.12',46,570,10,'#627f92');
+      });layerState=key;}
+      if(!frontLayer)frontLayer=layer(()=>{
+      const glass=linear(94,0,320,0,[[0,'#b5e6f030'],[.06,'#e8faff13'],[.3,'#6c9fad06'],[.65,'#bccfd909'],[.94,'#ebffff2e'],[1,'#c8eaf04a']]);
+      // Front reflections and refracted vertical highlights.
+      ctx.fillStyle=glass;ctx.fillRect(94,135,224,308);rect(102,147,4,280,2,'#ffffff4a');rect(113,147,12,277,5,'#efffff0d');rect(306,149,3,282,1,'#ffffff5f');
+      const chrome=linear(76,0,335,0,[[0,'#27333e'],[.05,'#b6c8d0'],[.12,'#657d8b'],[.3,'#e5eff3'],[.4,'#5e737f'],[.8,'#a6b8c1'],[1,'#142432']]);
+      ellipse(206,135,119,24,chrome);ellipse(206,133,107,15,'#13212c');ellipse(206,132,102,11,'#73899250');rect(79,112,254,13,3,chrome);rect(85,441,242,18,4,chrome);ellipse(206,441,121,16,'#7b919c7a');
+      for(const x of [86,323])rect(x,133,5,307,1,linear(x,0,x+5,0,[[0,'#293b47'],[.5,'#cfdee2'],[1,'#344958']]));
+      },{x:75,y:105,width:264,height:365});
+      ctx.clearRect(0,0,1000,600);ctx.drawImage(backLayer,0,0);
       ctx.save();ctx.beginPath();ctx.rect(98,135,216,307);ctx.clip();
       const removed=new Set(lottery.result.slice(0,state.count));if(state.phase==='suction')removed.add(lottery.result[state.index]);
       const bodies=physics.bodies.filter(b=>!removed.has(b.n)).sort((a,b)=>a.z-b.z);
       for(const b of bodies){const scale=1+b.z/400;poolBall(206+b.x*scale,140+b.y+b.z*.12,10.5*scale,b.n,reduced?0:b.spin,(b.z+51)/400+.72)}
       if(state.phase==='suction'&&!reduced){const p=selectionPoint(state.progress);if(p[1]>135&&p[0]<316)ball(p[0],p[1],10.5,lottery.result[state.index],state.elapsed*.012)}
       ctx.restore();
-      // Front reflections and refracted vertical highlights.
-      ctx.fillStyle=glass;ctx.fillRect(94,135,224,308);rect(102,147,4,280,2,'#ffffff4a');rect(113,147,12,277,5,'#efffff0d');rect(306,149,3,282,1,'#ffffff5f');
-      const chrome=linear(76,0,335,0,[[0,'#27333e'],[.05,'#b6c8d0'],[.12,'#657d8b'],[.3,'#e5eff3'],[.4,'#5e737f'],[.8,'#a6b8c1'],[1,'#142432']]);
-      ellipse(206,135,119,24,chrome);ellipse(206,133,107,15,'#13212c');ellipse(206,132,102,11,'#73899250');rect(79,112,254,13,3,chrome);rect(85,441,242,18,4,chrome);ellipse(206,441,121,16,'#7b919c7a');
-      for(const x of [86,323])rect(x,133,5,307,1,linear(x,0,x+5,0,[[0,'#293b47'],[.5,'#cfdee2'],[1,'#344958']]));
-      // The selected physical ball follows the pipe continuously into the outlet.
+      ctx.drawImage(frontLayer,75,105);
       if(state.phase==='suction'&&!reduced){const p=selectionPoint(state.progress);if(p[1]<=135||p[0]>=316)ball(p[0],p[1],10.5,lottery.result[state.index],state.elapsed*.012)}
-      rect(443,309,37,24,4,'#03060a','#8a9ca55e');
-      // Broadcast close-up: black receiving channel, glossy red ball and repeated white numbers.
-      rect(505,71,453,339,12,linear(505,71,958,410,[[0,'#7b8b98'],[.015,'#151e28'],[.985,'#0b1118'],[1,'#7f919e']]),'#acc4d93d');
-      rect(514,80,435,321,7,linear(514,80,949,400,[[0,'#182029'],[.4,'#020407'],[1,'#10151c']]));
       ctx.save();ctx.beginPath();ctx.rect(515,80,433,320);ctx.clip();
-      rect(520,299,420,56,7,linear(0,299,0,355,[[0,'#050608'],[.3,'#2b3035'],[.5,'#080b0e'],[1,'#010203']]));
       if(state.count){
         const lastIndex=state.count-1,since=state.elapsed-INTRO-lastIndex*STEP-STEP*REVEAL,t=reduced?1:Math.max(0,Math.min(1,since/650)),ease=1-(1-t)**3;
         const x=734+(1-ease)*225,r=91;ellipse(x+10,324,108,15,'#000000d9');
@@ -139,37 +157,41 @@
         label('BALL '+String(state.count).padStart(2,'0')+' / 06',536,373,12,'#9aabb8');
       }else{label('WAITING FOR DRAW',732,235,16,'#4e606e','center')}
       circle(536,105,4,'#ff334d');label('BALL CAMERA   /   LIVE',549,106,11,'#d8e3eb');ctx.restore();
-      // A physical six-ball receiving rack, separate from the readable number strip.
-      label('DRAWN BALLS',516,443,11,'#adbfcc');rect(507,460,451,96,9,linear(0,460,0,556,[[0,'#34424e'],[.08,'#070b10'],[.85,'#121b23'],[1,'#53636e']]),'#a2b6c13d');
-      rect(518,477,429,54,15,'#020609');
       ctx.save();ctx.beginPath();ctx.rect(518,467,430,78);ctx.clip();
       for(let i=0;i<6;i++){
         const x=551+i*72;ellipse(x,532,30,5,'#000000b0');
         if(i<state.count){
           const since=state.elapsed-INTRO-i*STEP-STEP*REVEAL,t=reduced?1:Math.max(0,Math.min(1,since/800)),ease=1-(1-t)**3;
           const rollingX=i===state.count-1?x+(936-x)*(1-ease):x,bounce=i===state.count-1?Math.abs(Math.sin(t*Math.PI*3))*7*(1-t):0;
-          ball(rollingX,505-bounce,28,lottery.result[i],i===state.count-1?(1-ease)*7:0);
+          poolBall(rollingX,505-bounce,28,lottery.result[i],i===state.count-1?(1-ease)*7:0,1);
         }else{ctx.strokeStyle='#344650';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(x,507,25,19,0,0,Math.PI*2);ctx.stroke()}
       }
       ctx.restore();
-      label('HAPPINESS   /   2026.12.12',46,570,10,'#627f92');
     }
     function paint(){
       const now=clock(),state=frame(lottery,now),moving=['mixing','suction','reveal'].includes(state.phase),settling=state.phase==='complete'&&state.elapsed<INTRO+5*STEP+STEP*REVEAL+2200;root.dataset.phase=state.phase;
       const removed=new Set(lottery.result.slice(0,state.count));if(state.phase==='suction')removed.add(lottery.result[state.index]);
       if(state.phase==='suction'&&intakeIndex!==state.index){intakeIndex=state.index;const b=physics.bodies[lottery.result[state.index]-1];if(b)intakeOrigin=[206+b.x*(1+b.z/400),140+b.y+b.z*.12]}
-      if((moving||settling)&&!reduced){let delta=lastPaint?Math.max(0,Math.min(.05,(now-lastPaint)/1000)):1/60;while(delta>0){const dt=Math.min(delta,1/60);physics.step(dt,removed,moving);delta-=dt}}lastPaint=now;
+      if((moving||settling)&&!reduced){let delta=lastPaint?Math.max(0,Math.min(.05,(now-lastPaint)/1000)):1/60;while(delta>0){const dt=Math.min(delta,1/60);physics.step(moving?dt*2:dt,removed,moving);delta-=dt}}lastPaint=now;
       studio(state);
       for(let i=0;i<6;i++){const shown=i<state.count;resultNodes[i].number.textContent=shown?String(lottery.result[i]).padStart(2,'0'):'—';resultNodes[i].li.dataset.shown=String(shown)}
       const text=state.phase==='idle'?(lottery.status==='open'?'投注開放中，等候主持人開獎':'投注已截止，等候開獎'):state.phase==='complete'?'六顆號碼已開出':state.phase==='mixing'?'氣流攪拌中，準備第 '+(state.index+1)+' 顆':state.phase==='suction'?'第 '+(state.index+1)+' 顆球正在吸入管道…':'第 '+(state.index+1)+' 顆號碼：'+String(lottery.result[state.index]).padStart(2,'0');
       if(text!==lastStatus){status.textContent=text;lastStatus=text}return moving||settling;
     }
     let lastFrameAt=-Infinity;
-    function tick(){timer=null;if(destroyed)return;const now=clock();if(now-lastFrameAt>=1000/30){lastFrameAt=now;if(!paint())return}if(raf&&!doc.hidden)timer=raf(tick)}
+    const frameInterval=1000/((target.clientWidth||1000)<620?30:60);
+    function tick(){
+      timer=null;if(destroyed)return;const now=clock(),elapsed=now-lastFrameAt;
+      // Preserve the cadence when Date.now rounds a 16.67ms / 33.33ms interval.
+      if(elapsed>=frameInterval-1){lastFrameAt=Number.isFinite(lastFrameAt)&&elapsed<frameInterval*2?lastFrameAt+frameInterval:now;if(!paint())return}
+      if(raf&&!doc.hidden)timer=raf(tick);
+    }
     function update(value){
-      const next=value||{status:'open',result:[]},key=String(next.startedAt)+'|'+JSON.stringify(next.result||[]);
+      const next=value||{status:'open',result:[]},key=String(next.startedAt)+'|'+JSON.stringify(next.result||[]),changed=key!==identity||next.status!==lottery.status||next.prizeName!==lottery.prizeName;
       if(key!==identity){identity=key;physics=createPhysics();intakeIndex=-1;lastPaint=0}
-      lottery={...next,result:next.result||[]};if(timer!==null){caf?.(timer);timer=null}lastFrameAt=-Infinity;tick();
+      lottery={...next,result:next.result||[]};heading.textContent='幸福大樂透・'+(lottery.prizeName||'現場開獎');
+      if(!changed)return;
+      if(timer!==null){caf?.(timer);timer=null}lastFrameAt=-Infinity;tick();
     }
     const visibility=()=>{if(timer!==null){caf?.(timer);timer=null}lastPaint=0;if(!doc.hidden){lastFrameAt=-Infinity;tick()}};doc.addEventListener('visibilitychange',visibility);
     const api={update,destroy(){destroyed=true;if(timer!==null)caf?.(timer);doc.removeEventListener('visibilitychange',visibility);root.remove();target.classList.remove('lottery-machine-host');instances.delete(target)}};instances.set(target,api);paint();return api;

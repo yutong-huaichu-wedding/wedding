@@ -15,3 +15,6 @@
 
 /* The projection is controlled by the host buttons; keep native media chrome out of the picture. */
 .picture video{pointer-events:none}.picture video::-webkit-media-controls,.picture video::-webkit-media-controls-enclosure,.picture video::-webkit-media-controls-panel,.picture video::-webkit-media-controls-start-playback-button{display:none!important;-webkit-appearance:none}
+
+/* Keep the phone preview directly above its controls. */
+.host-preview-tools{padding:12px;border:1px solid var(--line);border-radius:12px}.host-preview-tools>label{display:flex;align-items:center;gap:8px;font-size:13px;margin-top:14px;line-height:1.6}.host-preview-tools input{width:20px;height:20px;flex-shrink:0;accent-color:var(--rose)}.host-preview-tools .small{margin-bottom:0}#picture{scroll-margin-top:12px}@media(max-width:720px){body:not(.screen-mode) .game-layout .stage{grid-row:1}body:not(.screen-mode) .game-layout .host-panel{grid-row:2}body:not(.screen-mode) .picture{height:clamp(190px,34vh,280px)}}

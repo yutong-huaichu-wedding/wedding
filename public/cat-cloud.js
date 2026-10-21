@@ -79,7 +79,7 @@ export function createCloudProjection({session,screen=false,follow=false,onState
       }
       if(!sending&&!pending)onStatus({kind:'online',active:data.active!==false,connected:(data.serverNow??clock())-(data.screenAt||0)<12000,
         message:screen?(data.state?'✓ 已連線，跟隨手機主持人操作。':'等待手機主持人出題…'):
-          (data.serverNow??clock())-(data.screenAt||0)<12000?'✓ 電腦投影已連線；聲音由投影電腦播放。':'✓ 雲端同步已啟用，請在電腦開啟投影連結。'});
+          (data.serverNow??clock())-(data.screenAt||0)<12000?'✓ 電腦投影已連線，題目與解答同步；本頁聲音可用開關控制。':'✓ 雲端同步已啟用，請在電腦開啟投影連結。'});
       if(!screen)void pump();
     } catch(error){onStatus({kind:'error',message:'連線中斷，正在自動重連：'+error.message})}
     finally{if(!closed&&enabled)timer=setTimeout(poll,pollMs)}

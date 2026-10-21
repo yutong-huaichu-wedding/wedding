@@ -1,4 +1,4 @@
-import {createCloudProjection} from './cat-cloud.js?v=20261020-media3';
+import {createCloudProjection} from './cat-cloud.js?v=20261021-catphone15';
 import {ready,validateMedia,validateDeck,projectionState,packDeck,unpackDeck,moveCatQuestion} from './cat-meme-model.js';
 import {createCatMemeDeck,mergeCatMemeDeck,catMemeQuestions,upgradeCatMemeSounds,applyFinalCatMemeDeck} from './cat-meme-questions.js';
 const $=id=>document.getElementById(id);
@@ -10,7 +10,7 @@ if(!session||!/^[0-9a-f-]{36}$/i.test(session))session=crypto.randomUUID();
 try{if(!screenMode)sessionStorage.setItem('wedding-cat-room',session)}catch{}
 const cloudScreen=screenMode&&params.get('local')!=='1';
 let projectionVisible=params.get('embedded')!=='1',pendingPlayback=false;
-let cloud=null;
+let cloud=null,hostPreviewSound=false;
 function projectionUrl(){return new URL('/wedding_1212?display=1',location.href).href}
 const channel=typeof BroadcastChannel!=='undefined'?new BroadcastChannel('wedding-cat-memes:'+session):null;
 let orderSaving=false,pendingOrder=null;
@@ -53,7 +53,7 @@ async function playSound(state=liveState,audioOnly=false){
   if(!media)return;
   player.pause();if(player.getAttribute('src')!==media)player.src=media;
   if(player.error){player.load();if(video)loadStageMedia(player,media,true)}
-  player.volume=state.volume??.8;player.currentTime=0;player.controls=false;player.hidden=false;if(!video)player.hidden=true;
+  player.volume=state.volume??.8;player.muted=!screenMode&&!audioOnly&&!hostPreviewSound;player.currentTime=0;player.controls=false;player.hidden=false;if(!video)player.hidden=true;
   $('playbackStatus').textContent=video?'正在播放有聲答案影片…':'正在試聽影片聲音…';
   try{await player.play()}catch{$('playbackStatus').textContent='尚未播放：請按「再播一次」，並確認檔案可播放與喇叭已開。'}
 }
@@ -96,7 +96,7 @@ function renderStage(state,autoplay=false){
 function publish(autoplay=false){
   const q=current();
   const state={...projectionState(q,index,deck.length,revealed,src),key:q?.id||'empty',serial:playSerial,volume:Number($('volume').value)};
-  renderStage(state,autoplay&&!connected());
+  renderStage(state,autoplay);
   channel?.postMessage({type:'state',state,autoplay});
   cloud?.publish({q,index,total:deck.length,revealed,serial:playSerial,volume:state.volume,autoplay});
 }
@@ -163,7 +163,8 @@ async function moveMemeQuestion(id,direction){
   }finally{orderSaving=false;renderDeck()}
 }
 function canLeaveEditor(){return !dirty||confirm('這道題目有尚未儲存的修改，要先放棄修改嗎？')}
-function selectQuestion(i){if(busy||!deck[i])return;index=i;revealed=false;renderDeck();publish()}
+function showHostPreview(){if(!screenMode)$('picture').scrollIntoView?.({behavior:'smooth',block:'center'})}
+function selectQuestion(i){if(busy||!deck[i])return;index=i;revealed=false;renderDeck();publish();showHostPreview()}
 async function starterDeck(){return createCatMemeDeck(async(id,extension)=>{try{const r=await fetch(new URL('./cat-meme-assets/'+id+'.'+extension,import.meta.url));if(!r.ok)return null;const blob=await r.blob();validateMedia(blob,extension==='mp3'?'sound':extension==='mp4'?'answer':'image');return blob}catch{return null}})}
 async function addStarterDeck(){
   if(busy||orderSaving||!canLeaveEditor())return;
@@ -209,12 +210,12 @@ async function importBackup(event){
 }
 $('soundPlayer').addEventListener('ended',()=>{$('playbackStatus').textContent='播放完畢，可以再播一次。'});
 $('soundPlayer').addEventListener('error',()=>{if($('soundPlayer').getAttribute('src'))$('playbackStatus').textContent='這個檔案無法播放，請改用 MP3 或 MP4 檔案。'});
-$('replay').addEventListener('click',()=>{if(screenMode)void playSound();else{playSerial++;publish(true)}});
+$('replay').addEventListener('click',()=>{if(screenMode)void playSound();else{playSerial++;publish(true);showHostPreview()}});
 if(channel)channel.onmessage=event=>{
   const m=event.data;if(!m||typeof m!=='object')return;
   if(screenMode&&!cloudScreen&&m.type==='state'&&m.state){lastHostAt=Date.now();renderStage(m.state,m.autoplay);}
   else if(screenMode&&m.type==='alive')lastHostAt=Date.now();
-  else if(!screenMode&&(m.type==='ready'||m.type==='heartbeat')){lastScreenAt=Date.now();$('screenStatus').textContent='✓ 投影已連接。請在投影畫面先按「啟用投影音效」。';channel.postMessage({type:'alive'});if(m.type==='ready'){stopSound();if(!cloud?.enabled)publish(false)}}
+  else if(!screenMode&&(m.type==='ready'||m.type==='heartbeat')){lastScreenAt=Date.now();$('screenStatus').textContent='✓ 投影已連接。請在投影畫面先按「啟用投影音效」。';channel.postMessage({type:'alive'});if(m.type==='ready'&&!cloud?.enabled)publish(false)}
 };
 cloud=createCloudProjection({session,screen:cloudScreen,follow:screenMode&&(params.get('follow')==='1'||!params.has('session')),onState:(state,autoplay)=>{
   lastHostAt=Date.now();if(!state.revealed)pendingPlayback=false;
@@ -233,7 +234,7 @@ window.addEventListener('message',event=>{
 });
 async function startCloud(sendCurrent=true){
   $('enableCloud').disabled=true;
-  try{await cloud.enable();stopSound();$('enableCloud').textContent='將目前這題送上投影';$('openScreen').textContent='↗ 開啟電腦專用投影';if(sendCurrent){publish(false);notice('目前題目已送往電腦專用投影。請保持手機頁面在前景。')}}
+  try{await cloud.enable();$('enableCloud').textContent='將目前這題送上投影';$('openScreen').textContent='↗ 開啟電腦專用投影';if(sendCurrent){publish(false);notice('目前題目已送往電腦專用投影。請保持手機頁面在前景。')}}
   catch(error){$('cloudStatus').textContent=error.message}
   finally{$('enableCloud').disabled=false}
 }
@@ -249,6 +250,8 @@ if(screenMode){
   if(cloudScreen)cloud.start();else channel?.postMessage({type:'ready'});
   setInterval(()=>{if(!cloudScreen)channel?.postMessage({type:'heartbeat'});if(!cloudScreen&&Date.now()-lastHostAt>7000)$('unlockStatus').textContent='主持人頁面尚未連接，請保持主持人頁面開啟。'},2500);
 }else{
+  $('hostPreviewSound').onchange=()=>{hostPreviewSound=$('hostPreviewSound').checked;$('soundPlayer').muted=!hostPreviewSound;if(revealed)void playSound(liveState)};
+  $('viewHostPreview').onclick=showHostPreview;
   $('projectionLink').value=projectionUrl();
   $('enableCloud').onclick=()=>startCloud(true);
   $('copyProjection').onclick=async()=>{try{await navigator.clipboard.writeText(projectionUrl());notice('投影連結已複製，請貼到電腦瀏覽器開啟。')}catch{$('projectionLink').focus();$('projectionLink').select();notice('請長按或手動複製上方投影連結。')}};
@@ -260,12 +263,12 @@ if(screenMode){
   $('deleteMeme').onclick=deleteQuestion;$('exportDeck').onclick=exportBackup;$('importDeck').onchange=importBackup;
   $('addNew').onclick=()=>{if(!busy&&!orderSaving&&canLeaveEditor()){fillEditor();$('memeName').focus();$('editor').scrollIntoView({behavior:'smooth',block:'center'})}};
   $('deck').onclick=event=>{if(busy)return;const move=event.target.closest('[data-move]'),edit=event.target.closest('[data-edit]'),show=event.target.closest('[data-show]');if(move){void moveMemeQuestion(move.dataset.move,Number(move.dataset.direction));return}if(edit&&canLeaveEditor())fillEditor(deck.find(q=>q.id===edit.dataset.edit));else if(show)selectQuestion(Number(show.dataset.show))};
-  $('reveal').onclick=()=>{if(!ready(current())||revealed)return;revealed=true;playSerial++;renderDeck();publish(true)};
+  $('reveal').onclick=()=>{if(!ready(current())||revealed)return;revealed=true;playSerial++;renderDeck();publish(true);showHostPreview()};
   $('hideAnswer').onclick=()=>{stopSound();revealed=false;renderDeck();publish()};$('previous').onclick=()=>selectQuestion(index-1);$('next').onclick=()=>selectQuestion(index+1);
   $('volume').oninput=()=>publish(false);
   $('soundCheck').onclick=()=>{const q=current();if(!ready(q))return;void playSound({...projectionState(q,index,deck.length,true,src),volume:Number($('volume').value)},true);notice('正在主持人這台電腦試聽影片聲音，投影畫面不會公布答案。')};
   $('openScreen').onclick=()=>{window.open(projectionUrl(),'wedding-shared-projection')};
-  setInterval(()=>{if(!connected())$('screenStatus').textContent='投影尚未連接。可先在左側試玩。'},3000);
+  setInterval(()=>{if(!connected())$('screenStatus').textContent='可直接在本頁看題目與解答；電腦投影可另外開啟。'},3000);
   (async()=>{setBusy(true);try{const saved=await loadDeck(),revision=await loadDeckRevision(),incoming=await starterDeck();if(saved===undefined){await storeDeck(incoming);await storeDeckRevision()}else if(revision!=='2026-10-15-final-nine'){await storeDeck(applyFinalCatMemeDeck(validateDeck(saved),incoming));await storeDeckRevision();notice('已套用最新 9 題及指定照片、影片。')}else {deck=validateDeck(saved);const updated=await upgradeCatMemeSounds(deck,incoming);if(updated!==deck){await storeDeck(updated);notice('內建題目已改用有聲影片，自訂素材與題目順序均已保留。')}}fillEditor(current());renderDeck();publish();}catch{deck=[];fillEditor();renderDeck();publish();$('storageStatus').textContent='無法讀取保存的題庫，請勿清除瀏覽器資料；可先重新整理，或匯入先前備份。';notice('題庫未能讀取，請重新整理或匯入備份。')}finally{setBusy(false);void startCloud(false)}})();
 }
 window.addEventListener('beforeunload',event=>{if(!screenMode&&(dirty||busy||orderSaving)){event.preventDefault();event.returnValue=''}});
