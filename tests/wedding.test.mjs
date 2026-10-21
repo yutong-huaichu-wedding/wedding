@@ -161,3 +161,38 @@ test('shared projector follows phone Mahjong commands and only hosts can choose 
  await ok('projectionMode',{mode:'kahoot'});screen=await (await api.readProjection()).json();assert.equal(screen.projection.mode,'kahoot');assert.equal(screen.mahjong.phase,'correct');
  assert.equal((await act('projectionMode',{mode:'cat'})).status,400);assert.equal((await act('projectionMode',{mode:'evil'})).status,400);
 });
+
+test('offline proxy registers and bets atomically without guest phone or credential',async()=>{
+ const fields={offline:true,realName:'王阿嬤',numbers:[49,8,3,22,7,11],blessing:'祝新人百年好合'};
+ assert.equal((await act('proxyTicket',fields,'a')).status,403);
+ assert.equal((await act('proxyTicket',fields,'')).status,403);
+ assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM guests')).n),3);
+ const result=await act('proxyTicket',fields);assert.equal(result.status,200);assert.equal(result.body.token,undefined);
+ const guest=await api.first('SELECT * FROM guests WHERE name=?','王阿嬤'),ticket=await api.first('SELECT * FROM tickets WHERE guest_id=?',guest.id);
+ assert.deepEqual(JSON.parse(ticket.numbers),[3,7,8,11,22,49]);assert.equal(ticket.name,'王阿嬤');
+ assert.equal((await api.first('SELECT text FROM blessings WHERE id=?',ticket.id)).text,fields.blessing);
+ assert.equal((await act('proxyTicket',fields)).status,400);
+ assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM guests')).n),4);
+ assert.equal((await act('ticket',{realName:'王 阿嬤',numbers:[1,2,3,4,5,6]},'b')).status,400);
+});
+test('offline proxy rejects closed and invalid entries without phantom registrations',async()=>{
+ const base={offline:true,realName:'陳阿公',numbers:[1,2,3,4,5,6]};
+ for(const fields of [{...base,numbers:[1,1,2,3,4,5]},{...base,realName:''},{...base,guestId:'a'},{...base,blessing:'祝'.repeat(101)}])assert.equal((await act('proxyTicket',fields)).status,400);
+ await ok('lottoState',{status:'closed'});assert.equal((await act('proxyTicket',base)).status,400);
+ assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM guests')).n),3);
+ assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM tickets')).n),0);
+});
+test('concurrent offline submissions with same real name yield one registration and one ticket',async()=>{
+ const fields={offline:true,realName:'林阿姨',numbers:[1,2,3,4,5,6],blessing:'新婚快樂'};
+ const results=await Promise.all([act('proxyTicket',fields),act('proxyTicket',fields)]);
+ assert.deepEqual(results.map(r=>r.status).sort(),[200,400]);
+ assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM guests')).n),4);
+ assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM tickets')).n),1);
+ assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM blessings')).n),1);
+});
+test('offline blessing failure rolls back both registration and ticket',async()=>{
+ sqlite.exec("CREATE TRIGGER fail_offline_blessing BEFORE INSERT ON blessings BEGIN SELECT RAISE(ABORT,'test failure'); END");
+ await assert.rejects(()=>act('proxyTicket',{offline:true,realName:'失敗賓客',numbers:[1,2,3,4,5,6],blessing:'祝福'}));
+ assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM guests')).n),3);
+ assert.equal(Number((await api.first('SELECT COUNT(*) AS n FROM tickets')).n),0);
+});

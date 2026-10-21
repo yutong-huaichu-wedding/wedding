@@ -166,17 +166,23 @@ export async function action(request: Request) {
     if (body.blessing != null && typeof body.blessing !== 'string') return bad('祝福格式錯誤');
     const blessing = (body.blessing || '').trim();
     if (blessing.length > 100) return bad('祝福請在 100 字以內');
-    const target = type === 'ticket' ? me : await first('SELECT id,name FROM guests WHERE id=?', clean(body.guestId, 80));
-    if (!target) return bad('找不到報到賓客');
     const realName = typeof body.realName === 'string' ? body.realName.normalize('NFKC').trim().replace(/\s+/gu, ' ') : '';
     if (realName.length < 2 || realName.length > 25) return bad('請填寫 2–25 字的兌獎本名，勿填暱稱');
     const nameKey = realName.replace(/\s+/gu, '').toLowerCase();
+    const offline = type === 'proxyTicket' && body.offline === true;
+    if (offline && body.guestId) return bad('請選擇直接代投或已報到賓客其中一種方式');
+    const target = offline ? { id: crypto.randomUUID(), name: realName } : type === 'ticket' ? me : await first('SELECT id,name FROM guests WHERE id=?', clean(body.guestId, 80));
+    if (!target) return bad('找不到報到賓客');
     const sorted = [...numbers].sort((a,b) => a-b);
     const id = crypto.randomUUID(), time = now();
-    const ticket = db().prepare("INSERT INTO tickets (id,guest_id,name,numbers,created_at) SELECT ?,?,?,?,? WHERE COALESCE(json_extract((SELECT value FROM settings WHERE key='lottery'),'$.status'),'open')='open' AND NOT EXISTS (SELECT 1 FROM tickets WHERE lower(replace(replace(name,' ',''),'　',''))=?) ON CONFLICT(guest_id) DO NOTHING").bind(id, target.id, realName, JSON.stringify(sorted), time, nameKey);
+    const ticket = db().prepare("INSERT INTO tickets (id,guest_id,name,numbers,created_at) SELECT ?,?,?,?,? WHERE COALESCE(json_extract((SELECT value FROM settings WHERE key='lottery'),'$.status'),'open')='open' AND EXISTS (SELECT 1 FROM guests WHERE id=?) AND NOT EXISTS (SELECT 1 FROM tickets WHERE lower(replace(replace(name,' ',''),'　',''))=?) ON CONFLICT(guest_id) DO NOTHING").bind(id, target.id, realName, JSON.stringify(sorted), time, target.id, nameKey);
     // One transaction: only this newly created ticket can add its blessing.
     // A duplicate ticket or closed round cannot leave an orphan message.
-    const [result] = await db().batch([ticket, ...(blessing ? [db().prepare('INSERT INTO blessings (id,guest_id,name,text,created_at) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM tickets WHERE id=?)').bind(id, target.id, target.name, blessing, time, id)] : [])]);
+    // Offline identity and ticket are one transaction: failures create neither.
+    // No reusable guest credential is returned or stored on the staff phone.
+    const registration = offline ? [db().prepare("INSERT INTO guests (id,name,token_hash,created_at,avatar_kind,avatar_value) SELECT ?,?,?,?,'preset','cat' WHERE COALESCE(json_extract((SELECT value FROM settings WHERE key='lottery'),'$.status'),'open')='open' AND NOT EXISTS (SELECT 1 FROM tickets WHERE lower(replace(replace(name,' ',''),'　',''))=?)").bind(target.id, realName, await hash(crypto.randomUUID()+crypto.randomUUID()), time, nameKey)] : [];
+    const results = await db().batch([...registration, ticket, ...(blessing ? [db().prepare('INSERT INTO blessings (id,guest_id,name,text,created_at) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM tickets WHERE id=?)').bind(id, target.id, target.name, blessing, time, id)] : [])]);
+    const result = results[registration.length];
     if (!result.meta.changes) return bad('投注已截止，或此身分／本名已投注；每人限一注。同名賓客請找主持人核對。');
     return good({ ok: true });
   }

@@ -82,3 +82,11 @@ test('wedding wall mounts fireworks once and stops them when changing projection
  run("openProjection('mahjong')");assert.equal(run('walls[0].active'),false);
  run("openProjection('wall');closeProjection()");assert.equal(run('walls[0].active'),false);
 });
+
+test('offline proxy retains failed drafts, prevents double submit and confirms a successful receipt',async()=>{
+ const {run,element}=setup();run("data.admin=true;selectProxyGuest('offline');proxyPicks=[1,2,3,4,5,6];globalThis.sent=[];globalThis.finish=null;act=(type,fields)=>{sent.push({type,...fields});return new Promise(resolve=>finish=resolve)}");
+ element('proxyRealName').value='李阿公';element('proxyBlessing').value='幸福久久';run('globalThis.sending=proxyTicket()');
+ await run('proxyTicket()');assert.equal(run('sent.length'),1);assert.equal(run('sent[0].offline'),true);assert.equal(run('sent[0].guestId'),undefined);assert.equal(element('proxySubmit').disabled,true);
+ run('finish(null)');await run('sending');assert.equal(element('proxyRealName').value,'李阿公');assert.equal(run('proxyPicks.length'),6);
+ run('globalThis.sending=proxyTicket();finish({ok:true})');await run('sending');assert.match(element('proxyReceipt').textContent,/李阿公.*01、02、03、04、05、06/);assert.equal(element('proxyRealName').value,'');assert.equal(element('proxyBlessing').value,'');assert.equal(run('proxyGuestId'),'offline');
+});
