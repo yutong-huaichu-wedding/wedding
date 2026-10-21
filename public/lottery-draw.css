@@ -14,3 +14,16 @@
 @media(max-width:600px){.lottery-machine{padding:16px 10px;border-radius:18px}.lottery-results{gap:5px}.lottery-machine .lottery-machine-status{font-size:12px}.lottery-machine-svg{max-height:none}.projector[data-mode=lotto] .lottery-machine{padding:12px 8px}.lottery-machine-heading{font-size:10px}.lottery-result small{font-size:9px}}
 @media(max-height:600px) and (min-width:601px){.projector[data-mode=lotto] .lottery-machine-svg{max-height:46vh}.projector[data-mode=lotto] h1{margin:3px}.projector[data-mode=lotto] .lottery-machine-status{margin:0 0 6px}.projector[data-mode=lotto] .lottery-result strong{max-width:48px;font-size:23px}}
 @media(prefers-reduced-motion:reduce){.lottery-machine [data-shown] strong{transition:none}}
+/* Studio machine: satin-black chassis, acrylic cylinder and red numbered balls. */
+.lottery-machine.lottery-studio{width:min(100%,1000px);padding:15px 18px 20px;border-radius:18px;background:linear-gradient(145deg,#162c40,#050e1c);border-color:#b8d3e42e;box-shadow:inset 0 1px 0 #ffffff1a,0 20px 40px #00152533}
+.lottery-machine-canvas{display:block;width:100%;height:auto;max-height:53vh;object-fit:contain;margin:8px auto 0}
+.lottery-studio .lottery-machine-heading{font-size:13px;letter-spacing:.22em;color:#e3eef6}
+.lottery-studio .lottery-results{gap:8px;max-width:680px;margin:auto}
+.lottery-studio .lottery-result strong{aspect-ratio:auto;min-height:34px;width:100%;max-width:none;border-radius:6px;background:#111e2d;border:1px solid #8094a338;color:#516877;box-shadow:none;font-size:23px}
+.lottery-studio .lottery-result[data-shown=true] strong{background:linear-gradient(#283a49,#172331);border-color:#bfceda55;color:#f5f8fc;box-shadow:inset 0 1px 0 #c9dfef1a}
+.lottery-studio .lottery-result small{color:#91a6b6}
+.projector[data-mode=lotto] .lottery-machine.lottery-studio{width:min(94vw,1100px);background:#080f1b;border-radius:14px;padding:10px 18px 15px}
+.projector[data-mode=lotto] .lottery-machine-canvas{max-height:57vh}
+.projector[data-mode=lotto] .lottery-studio .lottery-result strong{font-size:25px;max-width:none;min-height:36px}
+@media(max-width:600px){.lottery-machine.lottery-studio{padding:12px 7px 15px}.lottery-machine-canvas{max-height:none}.lottery-studio .lottery-machine-heading{font-size:11px}.lottery-studio .lottery-results{gap:4px}.lottery-studio .lottery-result strong{font-size:19px}.projector[data-mode=lotto] .lottery-machine-canvas{max-height:52vh}}
+@media(max-height:600px) and (min-width:601px){.projector[data-mode=lotto] .lottery-machine-canvas{max-height:46vh}.projector[data-mode=lotto] .lottery-studio .lottery-result strong{min-height:28px;font-size:20px}.projector[data-mode=lotto] .lottery-studio .lottery-machine-heading{font-size:10px}}
