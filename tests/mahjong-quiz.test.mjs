@@ -26,6 +26,6 @@ test('all five 16-tile questions have exactly the stated winning draws, independ
 });
 test('question screens omit answer text and explanation; revealed screens include all winning tiles',()=>{
  questions.forEach((q,i)=>{
-  const hidden=markup(i,false),shown=markup(i,true);assert.ok(!hidden.includes(q.explanation));assert.ok(!hidden.includes('class="listen-answer"'));assert.ok(shown.includes(q.explanation));assert.ok(shown.includes('class="listen-answer"'));assert.ok(hidden.includes('listen-fixed" open'));for(const t of q.answers)assert.ok(shown.includes('aria-label="'+ctx.MahjongQuiz.label(t)+'"'));
+  const hidden=markup(i,false),shown=markup(i,true);assert.ok(!hidden.includes(q.explanation));assert.ok(!hidden.includes('class="listen-answer"'));assert.ok(shown.includes(q.explanation));assert.ok(shown.includes('class="listen-answer"'));assert.doesNotMatch(hidden,/listen-fixed|listen-meld|listen-rules/);assert.equal((hidden.match(/class="listen-tile /g)||[]).length,q.hand.length);assert.doesNotMatch(shown,/listen-fixed|listen-meld|listen-rules/);for(const t of q.answers)assert.ok(shown.includes('aria-label="'+ctx.MahjongQuiz.label(t)+'"'));
  });
 });

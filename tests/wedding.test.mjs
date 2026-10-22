@@ -110,8 +110,8 @@ test('photo owner and host may delete; other guests cannot, including forged nam
  const owner=await state('a');assert.equal(owner.photos.find(p=>p.id==='p1').canDelete,true);assert.equal(owner.photos.find(p=>p.id==='p2').canDelete,false);assert.equal('guestId' in owner.photos[0],false);
  assert.ok((await state('admin')).photos.every(p=>p.canDelete));assert.ok((await state('')).photos.every(p=>!p.canDelete));
  assert.equal((await act('photoDelete',{id:'p1',guestId:'a',name:'同名賓客'},'b')).status,403);assert.equal((await act('photoDelete',{id:'p1'},'')).status,403);assert.deepEqual(deleted,[]);
- await ok('photoDelete',{id:'p1'},'a');assert.deepEqual(deleted,['photos/p1']);assert.equal((await state()).photos[0].id,'p2');assert.ok(await api.first('SELECT id FROM media WHERE id=?','p2'));assert.equal(await api.first('SELECT id FROM media WHERE id=?','p1'),null);
- await ok('photoDelete',{id:'p2'});assert.equal((await state()).photos.length,0);assert.deepEqual(deleted,['photos/p1','photos/p2']);
+ await ok('photoDelete',{id:'p1'},'a');assert.deepEqual(deleted,['photo-previews/p1','photos/p1']);assert.equal((await state()).photos[0].id,'p2');assert.ok(await api.first('SELECT id FROM media WHERE id=?','p2'));assert.equal(await api.first('SELECT id FROM media WHERE id=?','p1'),null);
+ await ok('photoDelete',{id:'p2'});assert.equal((await state()).photos.length,0);assert.deepEqual(deleted,['photo-previews/p1','photos/p1','photo-previews/p2','photos/p2']);
 });
 
 test('anonymous guests cannot join, leave or answer',async()=>{for(const type of ['quizJoin','quizLeave','answer'])assert.equal((await act(type,{},'')).status,401)});
@@ -237,4 +237,87 @@ test('host listening quiz synchronizes question, answer and original touch game 
  assert.equal((await act('mahjongQuiz',{index:0,phase:'question'},'')).status,403);
  await ok('mahjongPhase',{phase:'guess'});assert.deepEqual((await state()).mahjong,{phase:'guess'});
  const after=await state();for(const key of ['lottery','blessings','photos','quiz'])assert.deepEqual(after[key],before[key]);
+});
+
+test('150 concurrent guest buzzes produce exactly one server-decided winner with no private IDs exposed',async()=>{
+ const round=(await ok('buzzerPrepare',{round:'',title:'小貓第 1 題'})).buzzer.round;
+ assert.equal((await act('buzzerClaim',{round},'a')).status,425);
+ const opened=await ok('buzzerOpen',{round});assert.ok(opened.buzzer.opensAt>Date.now());
+ assert.equal((await act('buzzerClaim',{round,at:0},'a')).status,425);
+ assert.equal((await act('buzzerOpen',{round})).status,409);
+ await api.run("UPDATE settings SET value=json_set(value,'$.opensAt',?) WHERE key='buzzer'",Date.now()-100);
+ const tokens=Array.from({length:150},(_,i)=>'buzz'+i);
+ for(const [i,token] of tokens.entries())await api.run('INSERT INTO guests VALUES (?,?,?,?,?,?)',token,'搶答賓客'+i,await api.hash(token),i,'preset','cat');
+ const results=await Promise.all(tokens.map(token=>act('buzzerClaim',{round,name:'偽造得主',winner:{name:'假的'},at:0},token)));
+ assert.ok(results.every(r=>r.status===200));assert.equal(results.filter(r=>r.body.won).length,1);
+ const winnerIndex=results.findIndex(r=>r.body.won),publicState=await (await api.readBuzzer()).json();assert.equal(publicState.buzzer.status,'closed');assert.equal(publicState.buzzer.winner.name,'搶答賓客'+winnerIndex);assert.doesNotMatch(JSON.stringify(publicState),/guestId|token_hash/);
+ const retry=await ok('buzzerClaim',{round},tokens[winnerIndex]);assert.equal(retry.won,true);assert.equal(retry.buzzer.winner.at,publicState.buzzer.winner.at);
+ const loser=await ok('buzzerClaim',{round},'a');assert.equal(loser.won,false);assert.deepEqual(loser.buzzer,publicState.buzzer);
+ await ok('buzzerClose',{round});const dismissed=await (await api.readBuzzer()).json();assert.equal(dismissed.buzzer.showWinner,false);assert.deepEqual(dismissed.buzzer.winner,publicState.buzzer.winner);
+});
+test('buzzer host commands enforce permissions and round identity; early, closed and stale requests cannot win',async()=>{
+ const before=await state('a');
+ for(const token of ['a',''])for(const type of ['buzzerPrepare','buzzerOpen','buzzerClose'])assert.equal((await act(type,{round:''},token)).status,403);
+ const first=(await ok('buzzerPrepare',{round:'',title:'麻將'})).buzzer;
+ assert.equal((await act('buzzerClaim',{round:first.round},'')).status,401);
+ assert.equal((await act('buzzerClaim',{round:'stale'},'a')).status,409);
+ assert.equal((await act('buzzerPrepare',{round:'stale'})).status,409);
+ await ok('buzzerClose',{round:first.round});assert.equal((await act('buzzerClaim',{round:first.round},'a')).status,425);
+ const next=(await ok('buzzerPrepare',{round:first.round})).buzzer;assert.notEqual(next.round,first.round);assert.equal(next.winner,null);
+ assert.equal((await act('buzzerOpen',{round:first.round})).status,409);assert.equal((await act('buzzerClaim',{round:first.round},'a')).status,409);
+ const after=await state('a');for(const key of ['mahjong','lottery','blessings','photos','quiz'])assert.deepEqual(after[key],before[key]);
+});
+test('mahjong answer command returns saved display state for immediate phone rendering',async()=>{
+ const result=await ok('mahjongQuiz',{index:3,phase:'answer'});assert.deepEqual(result.mahjong,{kind:'quiz',index:3,phase:'answer'});assert.deepEqual(result.projection,{mode:'mahjong',session:''});
+ const touch=await ok('mahjongPhase',{phase:'correct'});assert.deepEqual(touch.mahjong,{phase:'correct'});
+});
+
+test('host activity routing persists for newly arriving guests and rejects guest changes',async()=>{
+ assert.equal((await (await api.readActivity()).json()).activity.mode,'reception');
+ for(const mode of ['reception','quiz','cat','mahjong','lotto']){
+  assert.equal((await act('eventActivity',{mode},'a')).status,403);
+  const changed=await ok('eventActivity',{mode}),read=await (await api.readActivity()).json();assert.equal(read.activity.mode,mode);assert.equal(read.activity.serial,changed.activity.serial);
+  if(mode!=='cat')assert.equal((await (await api.readProjection()).json()).projection.mode,{reception:'waiting',quiz:'quiz',mahjong:'mahjong',lotto:'lotto'}[mode]);
+ }
+ assert.equal((await act('eventActivity',{mode:'invalid'})).status,400);
+});
+test('native four-choice quiz enrolls checked-in guests automatically and protects answer, deadline and round',async()=>{
+ assert.equal((await act('liveQuizNext',{},'a')).status,403);
+ await ok('liveQuizNext',{seconds:20});let live=await (await api.readActivity()).json();assert.equal(live.activity.mode,'quiz');assert.equal(live.quiz.open,true);assert.equal('correct' in live.quiz.question,false);
+ const round=live.quiz.round,questionId=live.quiz.question.id;
+ await ok('answer',{round,questionId,choice:0},'a');assert.equal((await act('answer',{round,questionId,choice:1},'a')).status,400);
+ // A guest who checks in after the question starts may still answer.
+ await api.run('INSERT INTO guests VALUES (?,?,?,?,?,?)','late','後到賓客',await api.hash('late'),999,'preset','cat');await ok('answer',{round,questionId,choice:0},'late');
+ assert.equal((await act('answer',{round:'old',questionId,choice:0},'b')).status,400);
+ await ok('liveQuizClose',{round});live=await (await api.readActivity()).json();assert.equal(live.quiz.open,false);assert.equal(live.quiz.question.correct,0);assert.ok(live.quiz.leaders[0].score>=990&&live.quiz.leaders[0].score<=1000);
+ await ok('liveQuizNext',{seconds:10});const next=await (await api.readActivity()).json();assert.notEqual(next.quiz.round,round);assert.equal((await act('liveQuizClose',{round})).status,400);
+ await api.run("UPDATE settings SET value=json_set(value,'$.endsAt',?) WHERE key='quiz'",Date.now()-1);
+ const expired=await (await api.readActivity()).json();assert.equal(expired.quiz.open,false);assert.equal('correct' in expired.quiz.question,true);assert.equal((await act('answer',{round:next.quiz.round,questionId:next.quiz.question.id,choice:0},'b')).status,400);
+ await ok('liveQuizNext',{seconds:20});assert.equal((await (await api.readActivity()).json()).quiz.index,2);
+});
+test('concurrent native quiz start advances only one question and invalid durations preserve state',async()=>{
+ assert.equal((await act('liveQuizNext',{seconds:1})).status,400);const results=await Promise.all([act('liveQuizNext',{seconds:20}),act('liveQuizNext',{seconds:20})]);assert.equal(results.filter(r=>r.status===200).length,1);assert.equal((await (await api.readActivity()).json()).quiz.index,0);
+});
+
+test('speed scoring awards 975, 750 and 500 points at known elapsed times and zero for a wrong answer',async()=>{
+ await ok('liveQuizNext',{seconds:20});const quiz=await api.setting('quiz',api.quizDefault),id=quiz.questionId;
+ await api.run('INSERT INTO guests VALUES (?,?,?,?,?,?)','wrong','答錯賓客',await api.hash('wrong'),4,'preset','cat');
+ for(const [guestId,elapsed,correct] of [['a',1000,1],['b',10000,1],['c',19999,1],['wrong',0,0]])await api.run('INSERT INTO answers VALUES (?,?,?,?,?,?)',guestId,id,guestId,correct?0:1,correct,quiz.startedAt+elapsed);
+ await ok('liveQuizClose',{round:quiz.round});let live=await (await api.readActivity()).json();assert.equal(live.quiz.scoring,'speed');assert.deepEqual(live.quiz.leaders.map(g=>g.score),[975,750,500,0]);assert.equal((await state('a')).quiz.myScore,975);
+ await ok('liveQuizNext',{seconds:10});assert.equal((await state('a')).quiz.myScore,975);
+ await ok('quizReset');assert.equal((await state('a')).quiz.myScore,0);assert.equal((await api.all("SELECT key FROM settings WHERE key LIKE 'quizTiming:%'")).length,0);
+ await ok('quizJoin',{},'a');await ok('quizNext');await ok('answer',{choice:0,round:(await state()).quiz.round,questionId:(await state()).quiz.question.id},'a');assert.equal((await state('a')).quiz.myScore,10);
+});
+test('speed scoring uses stored server time and rejects duplicate attempts to improve the score',async()=>{
+ await ok('liveQuizNext',{seconds:20});const quiz=await api.setting('quiz',api.quizDefault),before=Date.now();
+ await ok('answer',{choice:0,round:quiz.round,questionId:quiz.questionId,score:999999,elapsedMs:-9999,created_at:quiz.startedAt-10000},'a');const row=await api.first('SELECT created_at FROM answers WHERE guest_id=?','a');assert.ok(row.created_at>=before&&row.created_at<=Date.now());
+ assert.equal((await act('answer',{choice:0,round:quiz.round,questionId:quiz.questionId},'a')).status,400);assert.equal((await api.first('SELECT created_at FROM answers WHERE guest_id=?','a')).created_at,row.created_at);
+ await ok('liveQuizClose',{round:quiz.round});const live=await (await api.readActivity()).json(),expected=Math.round(1000-500*Math.min(1,Math.max(0,(row.created_at-quiz.startedAt)/20000)));assert.equal(live.quiz.leaders[0].score,expected);
+});
+test('game lobby counts only authenticated entrants, deduplicates repeat joins and exposes names without guest IDs',async()=>{
+ assert.equal((await (await api.readActivity()).json()).players.count,0);assert.equal((await act('gameJoin',{},'')).status,401);
+ await Promise.all(Array.from({length:10},()=>ok('gameJoin',{guestId:'b',name:'偽造姓名'},'a')));let players=(await (await api.readActivity()).json()).players;assert.deepEqual(players,{count:1,names:['賓客a']});
+ await ok('gameJoin',{},'b');players=(await (await api.readActivity()).json()).players;assert.equal(players.count,2);assert.deepEqual(new Set(players.names),new Set(['賓客a','賓客b']));assert.doesNotMatch(JSON.stringify(players),/guestId|token_hash/);
+ await ok('profileUpdate',{name:'改名賓客'},'a');players=(await (await api.readActivity()).json()).players;assert.ok(players.names.includes('改名賓客'));assert.equal(players.count,2);
+ await ok('quizReset');assert.equal((await (await api.readActivity()).json()).players.count,2);
 });

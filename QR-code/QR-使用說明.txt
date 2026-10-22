@@ -1,9 +1,10 @@
-婚禮賓客入口 QR Code
+婚禮QR（LINE外部瀏覽器版）
 
-網址：https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/wedding_1212
+入席：https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/wedding_1212?openExternalBrowser=1
+遊戲：https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/wedding_1212?play=1&openExternalBrowser=1
 
-wedding-qr-ocean.png：海洋藍與雙貓直式設計，1800×2400，300dpi，可放桌卡、印刷或投影。
-wedding-qr-only.png：白底純 QR Code，方便自行排版；請保留完整白邊，勿裁切、覆蓋圖案或變形。
+wedding-qr-ocean.png：原海洋雙貓海報。
+wedding-qr-only.png：入席純QR。
+wedding-game-qr.png：直接加入遊戲純QR。
 
-本 QR 直接編碼原網站網址，無第三方短網址與掃描次數限制。QR 現在即可使用，照片刪除功能需上傳更新包部署後生效。
-已用獨立解碼器驗證完整設計、純 QR、灰階及縮小版，解碼網址完全一致。印刷後請再用實際手機試掃一次。
+請改用本包新版QR；舊印刷品不會自動改變。外部開啟參數適用LINE支援的情境；若仍留LINE可從右上角選單開啟預設瀏覽器。原LINE報到與其他瀏覽器不會自動共用身分。請現場用iPhone及Android各試掃一次。

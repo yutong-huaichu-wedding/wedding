@@ -55,7 +55,7 @@ test('Kahoot replaces old quiz UI and shared configuration updates guest links, 
  run("data.kahoot={url:'javascript:alert(1)',pin:'<script>'};renderKahoot()");assert.equal(element('kahootJoin').href,'https://kahoot.it/');assert.doesNotMatch(element('kahootGuestPin').textContent,/<script>/);
  const html=readFileSync(new URL('../public/wedding_1212.html',import.meta.url),'utf8');
  for(const id of ['quizPane','quizTab','ad-questions','quizRanking','questionManager'])assert.ok(!html.includes('id="'+id+'"'));
- assert.ok(!html.includes('快問快答'));assert.ok(!html.includes('rehearsal.js'));assert.match(html,/id="kahootJoin"[^>]+target="_blank"[^>]+rel="noopener noreferrer"/);
+ assert.ok(html.includes('id="liveQuizContent"'));assert.ok(html.includes('快問快答'));assert.ok(!html.includes('rehearsal.js'));assert.match(html,/id="kahootJoin"[^>]+target="_blank"[^>]+rel="noopener noreferrer"/);
 });
 test('saving Kahoot sends configuration once, disables edits and retains failed drafts',async()=>{
  const {run,element}=setup();run("data.admin=true;renderKahoot();kahootDirty=true");element('kahootUrl').value='https://kahoot.it/?pin=333333';element('kahootPin').value='333333';
@@ -136,4 +136,13 @@ test('mahjong listening preview and projection switch questions and hide answers
 });
 test('phone listening commands preserve manual pacing and prevent overlapping requests',async()=>{
  const {run}=setup();run("globalThis.sent=[];globalThis.release=null;act=(type,fields)=>{sent.push({type,...fields});return new Promise(resolve=>release=resolve)};globalThis.pending=setMahjongQuiz(2)");await run("setMahjongQuiz(2,'answer')");assert.equal(run('sent.length'),1);assert.equal(run('sent[0].phase'),'question');run('release({ok:true})');await run('pending');run("act=async(type,fields)=>{sent.push({type,...fields});return {ok:true}}");await run("setMahjongQuiz(2,'answer')");assert.equal(run('sent[1].phase'),'answer');assert.equal(run('projection'),'');
+});
+
+test('mahjong answers render from confirmed action state without waiting for the full-state refresh',async()=>{
+ const {run,ctx,element}=setup();vm.runInContext(readFileSync(new URL('../public/mahjong-quiz.js',import.meta.url),'utf8'),ctx);
+ run("data.admin=true;data.mahjong={kind:'quiz',index:2,phase:'question'};globalThis.sent=[];act=async(type,fields,options)=>{sent.push({type,fields,options});return {ok:true,mahjong:{kind:'quiz',index:fields.index,phase:fields.phase},projection:{mode:'mahjong',session:''}}}");await run("setMahjongQuiz(2,'answer')");assert.equal(run('sent[0].options.skipRefresh'),true);assert.match(element('mahjongQuizPreview').innerHTML,/class="listen-answer"/);assert.equal(run('mahjongBusy'),false);
+});
+test('an older background state read cannot revert a newly confirmed mahjong answer',async()=>{
+ const {run,ctx}=setup();ctx.fetch=()=>new Promise(resolve=>ctx.releaseRead=resolve);
+ const old=run('JSON.parse(JSON.stringify(data))');run('refreshPromise=null;globalThis.readingState=refresh()');run("act=async()=>({ok:true,mahjong:{kind:'quiz',index:1,phase:'answer'},projection:{mode:'mahjong',session:''}})");await run("setMahjongQuiz(1,'answer')");ctx.releaseRead({ok:true,json:async()=>old});await run('readingState');assert.equal(run('data.mahjong.phase'),'answer');assert.equal(run('data.mahjong.index'),1);
 });

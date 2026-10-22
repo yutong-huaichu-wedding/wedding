@@ -4,7 +4,8 @@ import { env } from 'cloudflare:workers';
 type Row = Record<string, any>;
 export const db = () => { if (!env.DB) throw new Error('Database unavailable'); return env.DB; };
 export const bucket = () => { if (!env.BUCKET) throw new Error('Photo storage unavailable'); return env.BUCKET; };
-export const mediaLimit = 1024 * 1024 * 1024;
+export const mediaLimit = 20 * 1024 * 1024 * 1024;
+export const photoLimit = 20, photoFileLimit = 30 * 1024 * 1024;
 export const mediaBytes = async () => Number((await first('SELECT COALESCE(SUM(size),0) AS total FROM media'))?.total || 0);
 export const now = () => Date.now();
 export const bad = (message: string, status = 400) => Response.json({ error: message }, { status, headers: { 'cache-control': 'no-store' } });
@@ -29,7 +30,7 @@ export const quizDefault = { index: -1, open: false };
 export const mahjongDefault = { phase: 'guess' };
 export const kahootDefault = { url: 'https://kahoot.it/', pin: '' };
 export const projectionDefault = { mode: 'waiting', session: '' };
-const projectionModes = ['waiting', 'mahjong', 'cat', 'lotto', 'wall', 'kahoot'];
+const projectionModes = ['waiting', 'mahjong', 'cat', 'lotto', 'wall', 'kahoot', 'quiz', 'join'];
 export function validKahootUrl(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > 1000) return null;
   try { const url = new URL(value); return url.protocol === 'https:' && ['kahoot.it','www.kahoot.it'].includes(url.hostname) && !url.username && !url.password && (!url.port || url.port === '443') ? url.href : null; } catch { return null; }
@@ -40,7 +41,7 @@ export const avatarPresets = ['cat','rabbit','bear','panda','fox','chick','frog'
 const participantKey = (id: string) => 'quizParticipant:' + id;
 const closeCompletedQuiz = () => db().prepare(`
   UPDATE settings SET value=json_set(value,'$.open',json('false'))
-  WHERE key='quiz' AND json_extract(value,'$.open')=1
+  WHERE key='quiz' AND COALESCE(json_extract(value,'$.autoJoin'),0)=0 AND json_extract(value,'$.open')=1
     AND json_array_length(value,'$.participants')>0
     AND NOT EXISTS (
       SELECT 1 FROM json_each(settings.value,'$.participants') p
@@ -48,12 +49,43 @@ const closeCompletedQuiz = () => db().prepare(`
         AND a.question_id=json_extract(settings.value,'$.questionId'))
     )`);
 
+export const buzzerDefault = { round: '', status: 'idle', opensAt: 0, title: '', winner: null };
+const publicBuzzer = (value: any) => ({ round: value.round, status: value.status, opensAt: value.opensAt || 0, title: value.title || '', showWinner: value.showWinner !== false, winner: value.winner ? { name: value.winner.name, at: value.winner.at } : null });
+export async function readBuzzer() { return good({ buzzer: publicBuzzer(await setting('buzzer', buzzerDefault)), serverNow: now() }); }
+
+// Score timing is stored beside the existing quiz settings; no schema migration.
+const answerPoints = `CASE WHEN a.correct=1 THEN CASE WHEN json_extract(t.value,'$.durationMs')>0
+  THEN CAST(ROUND(1000-500*MIN(1.0,MAX(0.0,(a.created_at-json_extract(t.value,'$.startedAt'))*1.0/json_extract(t.value,'$.durationMs')))) AS INTEGER)
+  ELSE 10 END ELSE 0 END`;
+const gameRoster = async () => {
+  const names = await all("SELECT g.name FROM settings s JOIN guests g ON s.key='gameJoined:'||g.id ORDER BY json_extract(s.value,'$.joinedAt') DESC,g.created_at,g.id");
+  return { count: names.length, names: names.map(row => row.name) };
+};
+
+export const eventDefault = { mode: 'reception', serial: 'initial' };
+const eventModes = ['reception', 'quiz', 'cat', 'mahjong', 'lotto'];
+export async function readActivity() {
+  const [activity, quiz] = await Promise.all([setting('eventActivity', eventDefault), setting('quiz', quizDefault)]);
+  const response: any = { activity, serverNow: now(), quiz: null, players: await gameRoster() };
+  if (activity.mode === 'quiz' || (await setting('projection', projectionDefault)).mode === 'quiz') {
+    const q = quiz.questionId ? await first('SELECT id,text,options,correct FROM questions WHERE id=?', quiz.questionId) : null;
+    const open = !!quiz.open && (!quiz.endsAt || quiz.endsAt > now());
+    response.quiz = { index: quiz.index, round: quiz.round || '', open, endsAt: quiz.endsAt || 0, scoring: quiz.scoring || 'fixed',
+      question: q ? { id: q.id, text: q.text, options: JSON.parse(q.options), ...(!open ? { correct: q.correct } : {}) } : null,
+      answered: q ? Number((await first('SELECT COUNT(*) AS count FROM answers WHERE question_id=?', q.id))?.count || 0) : 0,
+      total: Number((await first('SELECT COUNT(*) AS count FROM questions'))?.count || 0),
+      leaders: open ? [] : await all(`SELECT g.name,SUM(${answerPoints}) AS score FROM guests g JOIN answers a ON a.guest_id=g.id LEFT JOIN settings t ON t.key='quizTiming:'||a.question_id GROUP BY g.id ORDER BY score DESC,g.created_at LIMIT 10`) };
+  }
+  return good(response);
+}
+
 export async function state(request: Request) {
   const admin = await isAdmin(request);
   const me = await guest(request);
+  const photoTake = Math.min(3000,Math.max(60,Math.floor(Number(new URL(request.url).searchParams.get('photos'))||60)));
   const [blessings, photos, questions, tickets, guests, lotto, quiz, mahjong, kahoot, projection] = await Promise.all([
     all('SELECT b.id,b.name,b.text,b.created_at AS time,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue FROM blessings b LEFT JOIN guests g ON g.id=b.guest_id ORDER BY b.created_at DESC LIMIT 150'),
-    all('SELECT id,name,guest_id AS guestId,created_at AS time FROM photos ORDER BY created_at DESC LIMIT 150'),
+    all("SELECT p.id,p.name,p.guest_id AS guestId,p.created_at AS time FROM photos p WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key='photoPending:'||p.id) ORDER BY p.created_at DESC,p.id DESC LIMIT ?",photoTake),
     all('SELECT id,text,options,correct,position FROM questions ORDER BY position,id'),
     all('SELECT t.id,t.guest_id AS guestId,t.name,t.numbers,t.created_at AS time,b.text AS blessing FROM tickets t LEFT JOIN blessings b ON b.id=t.id ORDER BY t.created_at'),
     admin ? all('SELECT id,name,avatar_kind AS avatarKind,avatar_value AS avatarValue,created_at AS time FROM guests ORDER BY created_at') : Promise.resolve([]),
@@ -63,6 +95,8 @@ export async function state(request: Request) {
     setting('kahoot', kahootDefault),
     setting('projection', projectionDefault)
   ]);
+  const photoTotal = Number((await first("SELECT COUNT(*) AS count FROM photos p WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key='photoPending:'||p.id)"))?.count||0);
+  const ownPhotoCount = me ? Number((await first("SELECT COUNT(*) AS count FROM photos p WHERE p.guest_id=? AND NOT EXISTS (SELECT 1 FROM settings WHERE key='photoPending:'||p.id AND CAST(value AS INTEGER)<?)", me.id, now()-30*60*1000))?.count||0) : 0;
   const parsedTickets: Row[] = tickets.map(t => ({ ...t, numbers: JSON.parse(t.numbers) }));
   const result = Array.isArray(lotto.result) ? lotto.result : [];
   const winners = lotto.status === 'drawn' ? parsedTickets.filter(t => t.numbers.join(',') === result.join(',')).map(t => t.name) : [];
@@ -74,15 +108,16 @@ export async function state(request: Request) {
   const { participants: _participants, ...publicQuiz } = quiz;
   const currentQuestion = current ? { id: current.id, text: current.text, options: JSON.parse(current.options), ...(admin || !quiz.open ? { correct: current.correct } : {}) } : null;
   const myAnswer = me && current ? await first('SELECT choice FROM answers WHERE guest_id=? AND question_id=?', me.id, current.id) : null;
-  const myScore = me ? await first('SELECT COUNT(*) AS score FROM answers WHERE guest_id=? AND correct=1', me.id) : null;
-  const scores = admin ? await all('SELECT g.name,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue,COUNT(a.id)*10 AS score FROM guests g JOIN answers a ON a.guest_id=g.id AND a.correct=1 GROUP BY g.id ORDER BY score DESC,g.created_at LIMIT 30') : [];
+  const myScore = me ? await first(`SELECT COALESCE(SUM(${answerPoints}),0) AS score FROM answers a LEFT JOIN settings t ON t.key='quizTiming:'||a.question_id WHERE a.guest_id=?`, me.id) : null;
+  const scores = admin ? await all(`SELECT g.name,g.avatar_kind AS avatarKind,g.avatar_value AS avatarValue,SUM(${answerPoints}) AS score FROM guests g JOIN answers a ON a.guest_id=g.id LEFT JOIN settings t ON t.key='quizTiming:'||a.question_id GROUP BY g.id ORDER BY score DESC,g.created_at LIMIT 30`) : [];
   return good({
     mahjong, kahoot, projection,
     admin, me: me ? { id: me.id, name: me.name, avatarKind: me.avatarKind, avatarValue: me.avatarValue } : null,
-    blessings: blessings.reverse(), photos: photos.reverse().map(p => { const { guestId, ...photo } = p; return { ...photo, canDelete: admin || !!me && guestId === me.id, url: '/api/photo/' + p.id }; }),
+    blessings: blessings.reverse(), photos: photos.reverse().map(p => { const { guestId, ...photo } = p; return { ...photo, canDelete: admin || !!me && guestId === me.id, url: '/api/photo/' + p.id, thumbnailUrl: '/api/photo/' + p.id + '?preview=1', downloadUrl: '/api/photo/' + p.id + '?download=1' }; }),
+    album: { total: photoTotal, mine: ownPhotoCount, perGuest: photoLimit, perFileBytes: photoFileLimit, capacityBytes: mediaLimit, hasMore: photoTotal>photos.length },
     lottery: { ...publicLottery(lotto), winners, ticketCount: parsedTickets.length, remainingCount: parsedTickets.filter(t => !(lotto.draws || []).some((draw: any) => (draw.winnerIds || []).includes(t.guestId))).length },
     myTicket: me ? parsedTickets.find(t => t.guestId === me.id) || null : null,
-    quiz: { ...publicQuiz, joined, eligible: !!me && roster.includes(me.id), participantCount: Number(participantCount?.count || 0), answeredCount: Number(answeredCount?.count || 0), totalParticipants: roster.length, question: currentQuestion, total: questions.length, myAnswer: myAnswer?.choice ?? null, myScore: Number(myScore?.score || 0) * 10 },
+    quiz: { ...publicQuiz, joined, eligible: !!me && roster.includes(me.id), participantCount: Number(participantCount?.count || 0), answeredCount: Number(answeredCount?.count || 0), totalParticipants: roster.length, question: currentQuestion, total: questions.length, myAnswer: myAnswer?.choice ?? null, myScore: Number(myScore?.score || 0) },
     ...(admin ? { guests, tickets: parsedTickets, questions: questions.map(q => ({ ...q, options: JSON.parse(q.options) })), scores } : {})
   });
 }
@@ -128,6 +163,26 @@ export async function action(request: Request) {
   }
   const admin = await isAdmin(request);
   const me = await guest(request);
+  if (type === 'buzzerClaim') {
+    if (!me || !['preset', 'photo'].includes(me.avatarKind)) return bad('請先完成賓客報到', 401);
+    const current = await setting('buzzer', buzzerDefault);
+    if (!body.round || body.round !== current.round) return bad('這輪已結束，請等待主持人重新開放', 409);
+    if (current.winner) return good({ ok: true, won: current.winner.guestId === me.id, buzzer: publicBuzzer(current), serverNow: now() });
+    const receivedAt = now();
+    if (current.status !== 'open' || receivedAt < current.opensAt) return bad('尚未開放，請等倒數結束再按', 425);
+    const winner = JSON.stringify({ guestId: me.id, name: me.name, at: receivedAt });
+    await run(`UPDATE settings SET value=json_set(value,'$.winner',json(?),'$.status','closed')
+      WHERE key='buzzer' AND json_extract(value,'$.round')=? AND json_extract(value,'$.status')='open'
+        AND json_extract(value,'$.opensAt')<=? AND json_extract(value,'$.winner') IS NULL`, winner, body.round, receivedAt);
+    const decided = await setting('buzzer', buzzerDefault);
+    if (decided.round !== body.round) return bad('主持人已換到下一輪，請重新確認', 409);
+    return good({ ok: true, won: decided.winner?.guestId === me.id, buzzer: publicBuzzer(decided), serverNow: now() });
+  }
+  if (type === 'gameJoin') {
+    if (!me || !['preset', 'photo'].includes(me.avatarKind)) return bad('請先完成報到', 401);
+    await run('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO NOTHING', 'gameJoined:' + me.id, JSON.stringify({ joinedAt: now() }));
+    return good({ ok: true });
+  }
   if (type === 'profileUpdate') {
     if (!me) return bad('請先報到', 401);
     const name = clean(body.name, 25);
@@ -213,17 +268,20 @@ export async function action(request: Request) {
     const questions = await all('SELECT id,correct FROM questions ORDER BY position,id');
     const q = questions[quiz.index];
     const choice = Number(body.choice);
-    if (!quiz.open || !q) return bad('目前未開放作答');
+    if (!quiz.open || !q || quiz.endsAt && now() >= quiz.endsAt) return bad('目前未開放作答');
     if (!Number.isInteger(choice) || choice < 0 || choice > 3) return bad('答案無效');
     if (body.round !== quiz.round || body.questionId !== q.id) return bad('題目已更新，請重新確認後作答');
-    if (!Array.isArray(quiz.participants) || !quiz.participants.includes(me.id)) return bad('請先按「我要參賽」，從下一題開始作答');
+    if (!quiz.autoJoin && (!Array.isArray(quiz.participants) || !quiz.participants.includes(me.id))) return bad('請先按「我要參賽」，從下一題開始作答');
+    const answerId = crypto.randomUUID(), receivedAt = now();
     const [result] = await db().batch([
       db().prepare(`INSERT INTO answers (id,question_id,guest_id,choice,correct,created_at)
         SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM settings WHERE key='quiz'
           AND json_extract(value,'$.open')=1 AND json_extract(value,'$.round')=?
           AND json_extract(value,'$.questionId')=?
-          AND EXISTS (SELECT 1 FROM json_each(settings.value,'$.participants') WHERE value=?))
-        ON CONFLICT(question_id,guest_id) DO NOTHING`).bind(crypto.randomUUID(), q.id, me.id, choice, choice === q.correct ? 1 : 0, now(), quiz.round, q.id, me.id),
+          AND (COALESCE(json_extract(value,'$.autoJoin'),0)=1 OR EXISTS (SELECT 1 FROM json_each(settings.value,'$.participants') WHERE value=?))
+          AND (COALESCE(json_extract(value,'$.endsAt'),0)=0 OR json_extract(value,'$.endsAt')>?))
+        ON CONFLICT(question_id,guest_id) DO NOTHING`).bind(answerId, q.id, me.id, choice, choice === q.correct ? 1 : 0, receivedAt, quiz.round, q.id, me.id, receivedAt),
+      db().prepare(`INSERT INTO settings (key,value) SELECT ?,? WHERE EXISTS (SELECT 1 FROM answers WHERE id=?) ON CONFLICT(key) DO NOTHING`).bind('gameJoined:' + me.id, JSON.stringify({ joinedAt: receivedAt }), answerId),
       closeCompletedQuiz()
     ]);
     if (!result.meta.changes) return bad('已作答，或作答已結束');
@@ -236,14 +294,64 @@ export async function action(request: Request) {
     if (!photo) return good({ ok: true });
     // Check the stored uploader, never a submitted name or uploader ID.
     // Keep the album row if storage fails so the deletion can be retried.
+    await bucket().delete('photo-previews/' + id);
     await bucket().delete('photos/' + id);
     await db().batch([
       db().prepare('DELETE FROM photos WHERE id=?').bind(id),
-      db().prepare('DELETE FROM media WHERE id=?').bind(id)
+      db().prepare('DELETE FROM media WHERE id=?').bind(id),
+      db().prepare('DELETE FROM settings WHERE key=?').bind('photoPending:' + id)
     ]);
     return good({ ok: true });
   }
   if (!admin) return bad('請先登入主持人控制台', 403);
+  if (type === 'eventActivity') {
+    if (!eventModes.includes(body.mode)) return bad('活動無效');
+    const next = { mode: body.mode, serial: crypto.randomUUID() };
+    const statements = [db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('eventActivity', JSON.stringify(next))];
+    if (body.mode !== 'cat') statements.push(db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('projection', JSON.stringify({ mode: ({ reception: 'waiting', quiz: 'quiz', mahjong: 'mahjong', lotto: 'lotto' } as Record<string,string>)[body.mode], session: '' })));
+    await db().batch(statements);
+    return good({ ok: true, activity: next });
+  }
+  if (type === 'liveQuizNext') {
+    const previous = await setting('quiz', quizDefault), questions = await all('SELECT id FROM questions ORDER BY position,id');
+    if (previous.open && (!previous.endsAt || previous.endsAt > now())) return bad('請先截止目前這一題');
+    const index = previous.index + 1;
+    if (!questions[index]) return bad('尚無題目，或已經是最後一題');
+    const duration = Number(body.seconds ?? 20);
+    if (!Number.isInteger(duration) || duration < 10 || duration > 60) return bad('作答時間請設10～60秒');
+    const round = crypto.randomUUID(), startedAt = now(), next = { index, questionId: questions[index].id, round, open: true, autoJoin: true, scoring: 'speed', participants: [], startedAt, endsAt: startedAt + duration * 1000 };
+    const activity = { mode: 'quiz', serial: crypto.randomUUID() };
+    const [result] = await db().batch([
+      db().prepare(`INSERT INTO settings (key,value) SELECT 'quiz',? WHERE COALESCE(json_extract((SELECT value FROM settings WHERE key='quiz'),'$.index'),-1)=?
+        AND (COALESCE(json_extract((SELECT value FROM settings WHERE key='quiz'),'$.open'),0)=0 OR json_extract((SELECT value FROM settings WHERE key='quiz'),'$.endsAt')<=?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(next), previous.index, now()),
+      db().prepare(`INSERT INTO settings (key,value) SELECT 'eventActivity',? WHERE json_extract((SELECT value FROM settings WHERE key='quiz'),'$.round')=? ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(activity), round),
+      db().prepare(`INSERT INTO settings (key,value) SELECT 'projection',? WHERE json_extract((SELECT value FROM settings WHERE key='quiz'),'$.round')=? ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify({ mode: 'quiz', session: '' }), round),
+      db().prepare(`INSERT INTO settings (key,value) SELECT ?,? WHERE json_extract((SELECT value FROM settings WHERE key='quiz'),'$.round')=? ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind('quizTiming:' + questions[index].id, JSON.stringify({ startedAt, durationMs: duration * 1000, round }), round)
+    ]);
+    if (!result.meta.changes) return bad('另一台主持人已出題，請重新確認');
+    return good({ ok: true });
+  }
+  if (type === 'liveQuizClose') {
+    const result = await run(`UPDATE settings SET value=json_set(value,'$.open',json('false')) WHERE key='quiz' AND json_extract(value,'$.round')=?`, clean(body.round, 80));
+    if (!result.meta.changes) return bad('題目已更新，請重新確認');
+    return good({ ok: true });
+  }
+  if (type === 'buzzerPrepare') {
+    if (typeof body.round !== 'string' || body.round.length > 80) return bad('請先重新連線取得目前輪次');
+    const next = { round: crypto.randomUUID(), status: 'ready', opensAt: 0, title: clean(body.title, 60) || '現場搶答', winner: null };
+    const result = await run(`INSERT INTO settings (key,value) VALUES ('buzzer',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE json_extract(settings.value,'$.round')=?`, JSON.stringify(next), body.round);
+    if (!result.meta.changes) return bad('另一台主持人已切換輪次，請重新確認', 409);
+    return good({ ok: true, buzzer: publicBuzzer(next), serverNow: now() });
+  }
+  if (type === 'buzzerOpen' || type === 'buzzerClose') {
+    if (typeof body.round !== 'string' || !body.round) return bad('請先準備新一輪');
+    const result = type === 'buzzerOpen'
+      ? await run(`UPDATE settings SET value=json_set(value,'$.status','open','$.opensAt',?) WHERE key='buzzer' AND json_extract(value,'$.round')=? AND json_extract(value,'$.status')='ready'`, now() + 5000, body.round)
+      : await run(`UPDATE settings SET value=json_set(value,'$.status','closed','$.showWinner',json('false')) WHERE key='buzzer' AND json_extract(value,'$.round')=? AND json_extract(value,'$.status') IN ('ready','open','closed')`, body.round);
+    if (!result.meta.changes) return bad('狀態已變更，請重新確認目前輪次', 409);
+    return good({ ok: true, buzzer: publicBuzzer(await setting('buzzer', buzzerDefault)), serverNow: now() });
+  }
   if (type === 'kahootUpdate') {
     const url = validKahootUrl(body.url), pin = typeof body.pin === 'string' ? body.pin.trim() : '';
     if (!url) return bad('請貼上 https://kahoot.it/ 開頭的遊戲加入連結');
@@ -262,7 +370,7 @@ export async function action(request: Request) {
       db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('mahjong', JSON.stringify({ kind: 'quiz', index: body.index, phase: body.phase })),
       db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('projection', JSON.stringify({ mode: 'mahjong', session: '' }))
     ]);
-    return good({ ok: true });
+    return good({ ok: true, mahjong: { kind: 'quiz', index: body.index, phase: body.phase }, projection: { mode: 'mahjong', session: '' } });
   }
   if (type === 'mahjongPhase') {
     if (!['guess', 'correct', 'wrong'].includes(body.phase)) return bad('請選擇猜牌、答對或答錯畫面');
@@ -270,7 +378,7 @@ export async function action(request: Request) {
       db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('mahjong', JSON.stringify({ phase: body.phase })),
       db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('projection', JSON.stringify({ mode: 'mahjong', session: '' }))
     ]);
-    return good({ ok: true });
+    return good({ ok: true, mahjong: { phase: body.phase }, projection: { mode: 'mahjong', session: '' } });
   }
   if (type === 'ticketName') {
     const id = clean(body.id, 80);
@@ -318,7 +426,8 @@ export async function action(request: Request) {
       const next = { status: 'drawn', result, startedAt, durationMs: lotteryDrawDuration, prizeName: draw.prizeName, drawIndex: draw.index, draws: [...draws, draw] };
       await db().batch([
         db().prepare("UPDATE settings SET value=? WHERE key='lottery' AND value=?").bind(JSON.stringify(next), lock),
-        db().prepare("INSERT INTO settings (key,value) VALUES ('projection',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify({ mode: 'lotto', session: '' }))
+        db().prepare("INSERT INTO settings (key,value) VALUES ('projection',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify({ mode: 'lotto', session: '' })),
+        db().prepare("INSERT INTO settings (key,value) VALUES ('eventActivity',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify({ mode: 'lotto', serial: crypto.randomUUID() }))
       ]);
       return good({ ok: true });
     } catch (error) {
@@ -386,15 +495,15 @@ export async function action(request: Request) {
     return good({ ok: true });
   }
   if (type === 'quizReset') {
-    await db().batch([db().prepare('DELETE FROM answers'), db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('quiz', JSON.stringify(quizDefault))]);
+    await db().batch([db().prepare("DELETE FROM settings WHERE key LIKE 'quizTiming:%'"), db().prepare('DELETE FROM answers'), db().prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('quiz', JSON.stringify(quizDefault))]);
     return good({ ok: true });
   }
   if (type === 'blessingDelete') { await run('DELETE FROM blessings WHERE id=?', clean(body.id, 80)); return good({ ok: true }); }
   if (type === 'resetAll') {
     const photos = await all('SELECT id FROM photos');
     const avatars = await all("SELECT avatar_value AS value FROM guests WHERE avatar_kind='photo'");
-    await db().batch(["DELETE FROM settings WHERE key LIKE 'quizParticipant:%'",'DELETE FROM answers','DELETE FROM tickets','DELETE FROM blessings','DELETE FROM photos','DELETE FROM guests','DELETE FROM questions'].map(sql => db().prepare(sql)));
-    const keys = [...photos.map(photo => 'photos/' + photo.id), ...avatars.map(avatar => 'avatars/' + avatar.value)];
+    await db().batch(["DELETE FROM settings WHERE key LIKE 'photoPending:%'","DELETE FROM settings WHERE key LIKE 'quizParticipant:%'",'DELETE FROM answers','DELETE FROM tickets','DELETE FROM blessings','DELETE FROM photos','DELETE FROM guests','DELETE FROM questions'].map(sql => db().prepare(sql)));
+    const keys = [...photos.flatMap(photo => ['photos/' + photo.id,'photo-previews/' + photo.id]), ...avatars.map(avatar => 'avatars/' + avatar.value)];
     for (let i = 0; i < keys.length; i += 500) await bucket().delete(keys.slice(i, i + 500));
     await run('DELETE FROM media');
     await setSetting('lottery', lotteryDefault);
@@ -402,4 +511,66 @@ export async function action(request: Request) {
     return good({ ok: true });
   }
   return bad('未知操作', 404);
+}
+
+function detectedPhotoType(bytes: Uint8Array): string | null {
+  if (bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff) return 'image/jpeg';
+  if ([137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v)) return 'image/png';
+  const ascii = (from:number,to:number) => String.fromCharCode(...bytes.slice(from,to));
+  if (ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP') return 'image/webp';
+  if (ascii(4,8)==='ftyp') {
+    for(let i=8;i+4<=bytes.length;i+=4)if(['heic','heix','hevc','hevx','heim','heis','hevm','hevs','mif1','msf1'].includes(ascii(i,i+4)))return 'image/heic';
+  }
+  return null;
+}
+async function cleanupPendingPhotos() {
+  const expired=await all("SELECT p.id FROM photos p JOIN settings s ON s.key='photoPending:'||p.id WHERE CAST(s.value AS INTEGER)<? LIMIT 20",now()-30*60*1000);
+  for(const p of expired){
+    const [removed]=await db().batch([
+      db().prepare("DELETE FROM photos WHERE id=? AND EXISTS(SELECT 1 FROM settings WHERE key=? AND CAST(value AS INTEGER)<?)").bind(p.id,'photoPending:'+p.id,now()-30*60*1000),
+      db().prepare('DELETE FROM media WHERE id=? AND NOT EXISTS(SELECT 1 FROM photos WHERE id=?)').bind(p.id,p.id),
+      db().prepare('DELETE FROM settings WHERE key=? AND NOT EXISTS(SELECT 1 FROM photos WHERE id=?)').bind('photoPending:'+p.id,p.id)
+    ]);
+    if(removed.meta.changes)await bucket().delete(['photos/'+p.id,'photo-previews/'+p.id]);
+  }
+}
+export async function uploadWeddingPhoto(request:Request) {
+  if(!sameOrigin(request))return bad('來源不符',403);
+  const me=await guest(request);if(!me||!['preset','photo'].includes(me.avatarKind))return bad('請先完成報到',401);
+  const announced=Number(request.headers.get('content-length')||0);
+  if(announced>photoFileLimit+700*1024)return bad('單張原圖最多30MB',413);
+  let original:Blob,preview:Blob|null=null,id=crypto.randomUUID(),filename='';
+  if((request.headers.get('content-type')||'').startsWith('multipart/form-data')){
+    const form=await request.formData(),file=form.get('original'),thumb=form.get('preview'),uploadId=form.get('uploadId');
+    if(!(file instanceof Blob))return bad('請選擇照片');original=file;filename=typeof(file as File).name==='string'?(file as File).name:'';
+    if(thumb instanceof Blob)preview=thumb;
+    if(uploadId!==null){if(typeof uploadId!=='string'||!/^[0-9a-f-]{36}$/i.test(uploadId))return bad('上傳識別碼無效');id=uploadId as `${string}-${string}-${string}-${string}-${string}`;}
+  }else{original=new Blob([await request.arrayBuffer()],{type:request.headers.get('content-type')||''});}
+  if(original.size<12||original.size>photoFileLimit)return bad('單張原圖需為30MB以下的照片',413);
+  const type=detectedPhotoType(new Uint8Array(await original.slice(0,64).arrayBuffer()));if(!type)return bad('照片需為JPG、PNG、WebP或HEIC／HEIF格式');
+  if(preview&&(preview.size>600*1024||preview.size<12||detectedPhotoType(new Uint8Array(await preview.slice(0,16).arrayBuffer()))!=='image/jpeg'))return bad('預覽圖需為600KB以下的JPG');
+  const existing=await first('SELECT guest_id AS guestId FROM photos WHERE id=?',id);
+  if(existing){if(existing.guestId!==me.id)return bad('上傳識別碼已使用',409);const pending=await first('SELECT value FROM settings WHERE key=?','photoPending:'+id);if(pending){if(Number(pending.value)<now()-30*60*1000){await cleanupPendingPhotos();return bad('上傳已逾時，請再按上傳重試',410)}return bad('這張照片仍在處理，請稍後再試',409);}return good({ok:true,id,alreadyUploaded:true});}
+  await cleanupPendingPhotos();
+  const size=original.size+(preview?.size||0),time=now();
+  const [reserved]=await db().batch([
+    db().prepare(`INSERT INTO photos (id,guest_id,name,type,created_at) SELECT ?,?,?,?,?
+      WHERE (SELECT COUNT(*) FROM photos WHERE guest_id=?)<? AND (SELECT COALESCE(SUM(size),0) FROM media)+?<=?
+      ON CONFLICT(id) DO NOTHING`).bind(id,me.id,me.name,type,time,me.id,photoLimit,size,mediaLimit),
+    db().prepare(`INSERT INTO media (id,data,size) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM photos WHERE id=? AND guest_id=?) ON CONFLICT(id) DO NOTHING`).bind(id,new Uint8Array(),size,id,me.id),
+    db().prepare(`INSERT INTO settings (key,value) SELECT ?,? WHERE changes()>0 AND EXISTS(SELECT 1 FROM photos WHERE id=? AND guest_id=?) ON CONFLICT(key) DO NOTHING`).bind('photoPending:'+id,String(time),id,me.id)
+  ]);
+  if(!reserved.meta.changes){const saved=await first('SELECT guest_id AS guestId FROM photos WHERE id=?',id);if(saved?.guestId===me.id&&!await first('SELECT key FROM settings WHERE key=?','photoPending:'+id))return good({ok:true,id,alreadyUploaded:true});if(Number((await first('SELECT COUNT(*) AS count FROM photos WHERE guest_id=?',me.id))?.count||0)>=photoLimit)return bad('每位賓客最多可上傳20張照片');return bad('相簿容量已滿或同一張仍在處理，請稍後再試',409);}
+  try{
+    await bucket().put('photos/'+id,original,{httpMetadata:{contentType:type},customMetadata:{originalName:Array.from(filename.replace(/[\r\n/\\]/g,'_')).slice(0,160).join('')}});
+    if(preview)await bucket().put('photo-previews/'+id,preview,{httpMetadata:{contentType:'image/jpeg'}});
+    const published=await run("DELETE FROM settings WHERE key=? AND EXISTS(SELECT 1 FROM photos WHERE id=? AND guest_id=?)",'photoPending:'+id,id,me.id);
+    if(!published.meta.changes)throw Error('上傳已取消，請重新選取照片');
+    return good({ok:true,id});
+  }catch(error){
+    console.error(error);
+    await db().batch([db().prepare('DELETE FROM photos WHERE id=? AND guest_id=?').bind(id,me.id),db().prepare('DELETE FROM media WHERE id=?').bind(id),db().prepare('DELETE FROM settings WHERE key=?').bind('photoPending:'+id)]);
+    try{await bucket().delete(['photos/'+id,'photo-previews/'+id]);}catch(cleanupError){console.error(cleanupError)}
+    return bad('上傳未完成，未占用張數；請稍後重試',500);
+  }
 }

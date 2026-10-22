@@ -81,7 +81,7 @@ function renderStage(state,autoplay=false){
   }else if(!picture.innerHTML)picture.innerHTML='<div class="placeholder"><span>🐱</span><p>準備好你的小貓照片</p></div>';
   else if(!video&&visual){const image=picture.querySelector('img');if(image?.complete&&!image.naturalWidth)loadStageMedia(image,visual)}
   $('answerBox').hidden=!state.revealed;
-  $('stagePrompt').textContent=state.revealed?'原來是這個聲音！全場一起再來一次？':'舉起你的手，模仿牠的聲音！';
+  $('stagePrompt').textContent=state.revealed?'原來是這個聲音！全場一起再來一次？':'手機按「我要搶答」，取得資格後上台模仿！';
   $('answerText').textContent=state.revealed?state.answer||'':'';
   $('answerNote').textContent=state.revealed?state.note||'':'';
   if(!state.revealed&&state.preloadMedia){
@@ -250,6 +250,8 @@ if(screenMode){
   if(cloudScreen)cloud.start();else channel?.postMessage({type:'ready'});
   setInterval(()=>{if(!cloudScreen)channel?.postMessage({type:'heartbeat'});if(!cloudScreen&&Date.now()-lastHostAt>7000)$('unlockStatus').textContent='主持人頁面尚未連接，請保持主持人頁面開啟。'},2500);
 }else{
+  window.WeddingBuzzer?.init();
+  window.WeddingEvent?.init({isHost:()=>true,notice});
   $('hostPreviewSound').onchange=()=>{hostPreviewSound=$('hostPreviewSound').checked;$('soundPlayer').muted=!hostPreviewSound;if(revealed)void playSound(liveState)};
   $('viewHostPreview').onclick=showHostPreview;
   $('projectionLink').value=projectionUrl();

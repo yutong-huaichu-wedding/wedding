@@ -12,7 +12,7 @@
   function tiles(codes){return codes.map(code=>'<span class="listen-tile '+(code[0]==='z'?'honor':'suit')+'" role="img" aria-label="'+label(code)+'">'+label(code)+'</span>').join('')}
   function markup(index=0,revealed=false){
     const q=questions[index]||questions[0];
-    return '<div class="listen-quiz"><p class="listen-meta">聽牌挑戰 '+(questions.indexOf(q)+1)+' / 5　'+q.level+'</p><h2>'+q.title+'</h2><p class="listen-rules">本活動採 16 張：五組面子＋一對將眼。不計台數、花牌或其他限制。</p><div class="listen-hand" aria-label="待完成的手牌">'+tiles(q.hand)+'</div><p class="listen-question">再摸進哪一張可以胡牌？<br><small>請說出所有可能的牌</small></p><details class="listen-fixed" open><summary>已固定完成的 '+q.fixed.length+' 組面子（不再拆開）</summary><div class="listen-melds">'+q.fixed.map(group=>'<span class="listen-meld">'+tiles(group)+'</span>').join('')+'</div></details>'+(revealed?'<div class="listen-answer"><h3>答案</h3><div class="listen-hand">'+tiles(q.answers)+'</div><p>'+q.explanation+'</p></div>':'<p class="listen-wait">先猜猜看，等主持人公布答案！</p>')+'</div>';
+    return '<div class="listen-quiz"><p class="listen-meta">聽牌挑戰 '+(questions.indexOf(q)+1)+' / 5　'+q.level+'</p><h2>'+q.title+'</h2><div class="listen-hand" aria-label="待完成的手牌">'+tiles(q.hand)+'</div><p class="listen-question">再摸進哪一張可以胡牌？<br><small>請說出所有可能的牌</small></p>'+(revealed?'<div class="listen-answer"><h3>答案</h3><div class="listen-hand">'+tiles(q.answers)+'</div><p>'+q.explanation+'</p></div>':'<p class="listen-wait">先猜猜看，等主持人公布答案！</p>')+'</div>';
   }
   root.MahjongQuiz={questions,label,markup};
 })(typeof window==='undefined'?globalThis:window);
