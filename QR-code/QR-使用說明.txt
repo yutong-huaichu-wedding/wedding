@@ -1,10 +1,10 @@
-婚禮QR（LINE外部瀏覽器版）
+婚禮 QR Code｜黑白易辨識版
 
-入席：https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/wedding_1212?openExternalBrowser=1
-遊戲：https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/wedding_1212?play=1&openExternalBrowser=1
+賓客入口：https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/wedding_1212?openExternalBrowser=1
+遊戲入口：https://yutong-huaichu-wedding.yutong-huaizhu-1212.workers.dev/wedding_1212?play=1&openExternalBrowser=1
 
-wedding-qr-ocean.png：原海洋雙貓海報。
-wedding-qr-only.png：入席純QR。
-wedding-game-qr.png：直接加入遊戲純QR。
+請優先用 wedding-qr-only.png 測試 LINE 掃碼；wedding-qr-ocean.png 適合桌卡及投影。兩者網址相同。wedding-game-qr.png 是遊戲入口。
+保留完整白邊，不要裁切、覆蓋或拉伸。新版使用黑白較疏碼面。以獨立解碼器驗證縮小、灰階、輕微模糊版本；尚未完成 LINE 實機測試。
 
-請改用本包新版QR；舊印刷品不會自動改變。外部開啟參數適用LINE支援的情境；若仍留LINE可從右上角選單開啟預設瀏覽器。原LINE報到與其他瀏覽器不會自動共用身分。請現場用iPhone及Android各試掃一次。
+若掃不到：放大 QR、避免反光，或以手機內建相機掃描。若已辨識網址但無法開啟：請截取錯誤畫面協助確認，辨識與開啟是不同問題。
+網址保留 openExternalBrowser=1，LINE 未外開時可依頁面提示從選單開 Safari/Chrome。不同瀏覽器不共用登入。

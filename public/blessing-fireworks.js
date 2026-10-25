@@ -30,8 +30,9 @@
     function capacity(){return Math.min(6,slots.length,entries.length)}
     function layout(){
       const width=arena.clientWidth||300,height=arena.clientHeight||300;
-      const mobile=width<620,cols=mobile?2:3,rows=mobile?3:(height>=550||width>=1000&&height>=420?2:1);
+      const mobile=width<620,cols=mobile?2:3,rows=mobile?3:2;
       root.dataset.compact=String(mobile);
+      root.dataset.tight=String(!mobile&&height<525);
       slots=[];
       const h=mobile?height/3:rows===2?height*.42:height*.64;
       for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
@@ -108,7 +109,7 @@
       message.style.left=slot.left+'px';message.style.top=slot.top+'px';message.style.width=slot.width+'px';message.style.height=slot.height+'px';
       message.append(node('div','fireworks-overline','一份心意，一朵煙火'),node('blockquote','',entry.text));
       const author=node('div','fireworks-author');author.append(avatar(entry),node('span','',entry.name));message.append(author);arena.append(message);record.message=message;
-      if(slot.mobile){
+      if(slot.mobile||slot.height<220){
         const read=node('button','fireworks-read','閱讀祝福');read.type='button';read.setAttribute('aria-label','閱讀 '+entry.name+' 的完整祝福');
         read.onclick=()=>{
           inspecting=true;detailsText.textContent=entry.text;detailsAuthor.textContent=entry.name;

@@ -47,11 +47,11 @@
 /* Mobile: six readable bloom cards in two columns and three rows. */
 .fireworks-scene[data-compact=true]{min-height:820px}
 .fireworks-scene[data-compact=true] .fireworks-arena{inset:78px 6px 160px}
-.fireworks-scene[data-compact=true] .fireworks-message{padding:8px 6px;gap:5px;pointer-events:auto;overflow:hidden}
-.fireworks-scene[data-compact=true] .fireworks-overline{display:none}
-.fireworks-scene[data-compact=true] .fireworks-message blockquote{font-size:var(--message-size,14px);line-height:1.5;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;max-height:6em;min-height:0;flex-shrink:1}
-.fireworks-scene[data-compact=true] .fireworks-author{font-size:11px;gap:4px;max-width:100%}
-.fireworks-scene[data-compact=true] .fireworks-author .avatar-mini{width:18px;height:18px;font-size:14px}
+.fireworks-scene:is([data-compact=true],[data-tight=true]) .fireworks-message{padding:8px 6px;gap:5px;pointer-events:auto;overflow:hidden}
+.fireworks-scene:is([data-compact=true],[data-tight=true]) .fireworks-overline{display:none}
+.fireworks-scene:is([data-compact=true],[data-tight=true]) .fireworks-message blockquote{font-size:var(--message-size,14px);line-height:1.5;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;max-height:6em;min-height:0;flex-shrink:1}
+.fireworks-scene:is([data-compact=true],[data-tight=true]) .fireworks-author{font-size:11px;gap:4px;max-width:100%}
+.fireworks-scene:is([data-compact=true],[data-tight=true]) .fireworks-author .avatar-mini{width:18px;height:18px;font-size:14px}
 .fireworks-scene .fireworks-read{font:inherit;font-size:10px;line-height:1.5;background:#bceaff12;border:1px solid #bceaff40;border-radius:16px;color:#c9edfb;min-height:26px;padding:3px 9px;cursor:pointer;flex:none}
 .fireworks-details{box-sizing:border-box;width:min(88vw,460px);max-height:80dvh;overflow:auto;border:1px solid #8bc8dd80;border-radius:20px;padding:30px 24px;background:#0b3047;color:#f4fbff;box-shadow:0 20px 70px #001a30aa;text-align:center;overflow-wrap:anywhere}
 .fireworks-details::backdrop{background:#001c32c9;backdrop-filter:blur(4px)}

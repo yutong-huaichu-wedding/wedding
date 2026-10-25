@@ -5,8 +5,7 @@ function setHTML(id,markup){const target=$(id);if(!target)return;const previous=
 const displayMode=new URLSearchParams(location.search).get('display')==='1';
 let pollTimer=null,pollRunning=false,pollWake=false,pollStarted=false;
 const TOKEN_KEY = 'wedding_1212_guest_token';
-if(!$('kahootJoin')){const warning=document.createElement('p');warning.className='notice';warning.textContent='這份網頁與程式版本不一致。後台登入仍可使用；請完成修復檔上傳後，按 Ctrl＋F5 重新整理。';$('adminLogin')?.prepend(warning)}
-let data = { admin:false, me:null, blessings:[], photos:[], lottery:{status:'open',result:[],startedAt:0,winners:[],ticketCount:0}, myTicket:null, guests:[],tickets:[],mahjong:{phase:'guess'}, kahoot:{url:'https://kahoot.it/',pin:''} };
+let data = { admin:false, me:null, blessings:[], photos:[], lottery:{status:'open',result:[],startedAt:0,winners:[],ticketCount:0}, myTicket:null, guests:[],tickets:[],mahjong:{phase:'guess'} };
 let proxyPicks = [], proxyGuestId = 'offline', proxyBusy = false, proxySignature = '';
 let numberSignature='';
 let ticketBusy=false,ticketNameEdited=false;
@@ -68,7 +67,7 @@ function refresh(afterAction=false){
       const fresh=await r.json();if(readMahjongRevision!==mahjongRevision||mahjongBusy){fresh.mahjong=data.mahjong;fresh.projection=data.projection}const changed=JSON.stringify(fresh)!==JSON.stringify(data);data=fresh;if(changed)render();
       if(displayMode){setProjectionConnection('✓ 已連線，跟隨手機主持人');return}
       if(!completeGuest()&&!data.admin&&!hostMode)selectPanel('checkin');
-      else if(!wasComplete&&completeGuest()&&$('checkin').classList.contains('active'))go('home');
+      else if(!wasComplete&&completeGuest()&&$('checkin').classList.contains('active'))go('home',{activity:true});
     }catch(e){console.error(e);if(displayMode)setProjectionConnection('連線中斷，正在重新連線…');else $('checkStatus').textContent='連線中斷，請稍後重新整理'}
   })();
   refreshPromise=reading.finally(()=>{refreshing=false;refreshPromise=null});
@@ -77,7 +76,7 @@ function refresh(afterAction=false){
 
 function authHeaders(){ const token=localStorage.getItem(TOKEN_KEY); return token?{'Authorization':'Bearer '+token}:{} }
 async function act(type,fields={},options={}){ try{ const r=await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json',...authHeaders()},credentials:'same-origin',body:JSON.stringify({type,...fields})}); const result=await r.json(); if(!r.ok)throw Error(result.error||'操作失敗'); if(!options.skipRefresh)await refresh(true); return result; }catch(e){toast(e.message||'操作失敗');return null} }
-function go(t){wakePoll();document.body.classList.toggle('host-mode',t==='admin');if(t==='admin')hostMode=true; else if(t==='checkin')hostMode=false; if(!completeGuest()&&!data.admin&&t!=='admin')t='checkin'; selectPanel(t);window.scrollTo({top:0,behavior:'smooth'});render() }
+function go(t,options={}){if(!options.activity)window.WeddingEvent?.pause();wakePoll();document.body.classList.toggle('host-mode',t==='admin');if(t==='admin')hostMode=true; else if(t==='checkin')hostMode=false; if(!completeGuest()&&!data.admin&&t!=='admin')t='checkin'; selectPanel(t);window.scrollTo({top:0,behavior:'smooth'});render() }
 document.querySelectorAll('#tabs button').forEach(e=>e.addEventListener('click',()=>go(e.dataset.tab)));
 function requireGuest(){ if(completeGuest())return true;toast('請先完成姓名與頭像報到');go('checkin');return false }
 async function checkin(){
@@ -108,7 +107,7 @@ function updateFireworkWalls(){
   }
 }
 async function uploadPhoto(){return window.WeddingAlbum?.upload()}
-function setGame(v){if(!$('kahootPane')||!$('kahootTab'))return toast('網頁版本未更新完整，請重新整理或完成修復檔上傳。');game=v==='lotto'?'lotto':'kahoot';$('kahootPane').classList.toggle('hidden',game!=='kahoot');$('lottoPane').classList.toggle('hidden',game!=='lotto');$('kahootTab').className=game==='kahoot'?'primary':'outline';$('lottoTab').className=game==='lotto'?'primary':'outline';render()}
+function setGame(){game='lotto';render()}
 function clearPick(){if(ticketBusy)return;picks=[];renderNumbers()}
 function renderNumbers(){const signature=JSON.stringify([picks,data.lottery.status,!!data.myTicket,ticketBusy]);if(signature===numberSignature)return;numberSignature=signature;const grid=$('numberGrid');grid.innerHTML='';for(let n=1;n<=49;n++){const b=document.createElement('button');b.className='num'+(picks.includes(n)?' selected':'');b.textContent=String(n).padStart(2,'0');b.disabled=ticketBusy||data.lottery.status!=='open'||!!data.myTicket;b.onclick=()=>{if(ticketBusy)return;if(picks.includes(n))picks=picks.filter(x=>x!==n);else if(picks.length<6)picks.push(n);else return toast('最多選六個號碼');renderNumbers()};grid.append(b)}$('pickedCount').textContent=picks.length}
 async function submitTicket(){if(!requireGuest())return;await addTicket(null)}
@@ -193,29 +192,6 @@ function renderHostDraw(){
   if($('hostDrawStatus'))$('hostDrawStatus').textContent=lotteryLabel()+(drawCount()===6&&data.lottery.winners?.length?'｜恭喜 '+data.lottery.winners.join('、')+'！':'');
 }
 function ballHTML(){const arr=(data.lottery.result||[]).slice(0,drawCount());return [...Array(6)].map((_,i)=>'<div class="ball '+(i>=arr.length?'placeholder':'')+'">'+(i<arr.length?String(arr[i]).padStart(2,'0'):'?')+'</div>').join('')}
-let kahootDirty=false,kahootSaving=false,kahootSignature='';
-function kahootSettings(){
-  let url='https://kahoot.it/';
-  try{const candidate=new URL(data.kahoot?.url);if(candidate.protocol==='https:'&&['kahoot.it','www.kahoot.it'].includes(candidate.hostname)&&!candidate.username&&!candidate.password&&(!candidate.port||candidate.port==='443'))url=candidate.href}catch{}
-  const pin=/^\d{4,10}$/.test(data.kahoot?.pin||'')?data.kahoot.pin:'';
-  return {url,pin};
-}
-function renderKahoot(){
-  if(!$('kahootJoin')||!$('kahootHostJoin')||!$('kahootGuestPin'))return;
-  const config=kahootSettings();
-  for(const id of ['kahootJoin','kahootHostJoin'])$(id).href=config.url;
-  $('kahootGuestPin').textContent=config.pin?'本場 Game PIN：'+config.pin:'請輸入主持人公布的 Game PIN。';
-  const signature=JSON.stringify(config);
-  if(data.admin&&!kahootDirty&&!kahootSaving&&signature!==kahootSignature){$('kahootUrl').value=config.url;$('kahootPin').value=config.pin;kahootSignature=signature}
-  $('saveKahoot').disabled=kahootSaving;$('kahootUrl').disabled=kahootSaving;$('kahootPin').disabled=kahootSaving;
-}
-async function saveKahoot(){
-  if(kahootSaving)return;
-  const url=$('kahootUrl').value.trim()||'https://kahoot.it/',pin=$('kahootPin').value.trim();
-  kahootSaving=true;renderKahoot();$('kahootSaveStatus').textContent='正在更新參賽入口…';
-  try{if(await act('kahootUpdate',{url,pin})){kahootDirty=false;kahootSignature='';$('kahootSaveStatus').textContent='✓ 已更新，賓客頁會自動同步。'}else $('kahootSaveStatus').textContent='未能儲存，請確認連結及 PIN 後重試。'}
-  finally{kahootSaving=false;renderKahoot()}
-}
 async function loginAdmin(){const password=$('adminPassword').value;if(await act('login',{password})){$('adminPassword').value='';toast('已進入主持人控制台')}}
 async function logoutAdmin(){await act('logout')}
 function adminTab(t,btn){document.querySelectorAll('.adpane').forEach(e=>e.classList.toggle('hidden',e.id!=='ad-'+t));document.querySelectorAll('.adminnav button').forEach(e=>e.classList.remove('active'));btn.classList.add('active');render()}
@@ -280,7 +256,35 @@ function renderMahjongProjection(){
 }
 function openProjection(type){wakePoll();document.body.classList.add('projecting');projection=type;$('projector').classList.add('show');renderProjection()}
 function closeProjection(){window.WeddingLottery?.unmount($('projBalls'));document.body.classList.remove('projecting');projection='';$('projector').classList.remove('show');updateFireworkWalls();renderDraw('drawBalls');renderHostDraw()}
-function renderProjection(){if(projection){window.WeddingLottery?.unmount($('drawBalls'));window.WeddingLottery?.unmount($('hostDrawBalls'));}if(!projection){updateFireworkWalls();return}$('projector').dataset.mode=projection;$('projWall').style.display=projection==='wall'?'block':'none';updateFireworkWalls();if(projection!=='lotto')window.WeddingLottery?.unmount($('projBalls'));if(projection!=='join')delete $('projMessage').dataset.joinScreen;if(projection==='join'){$('projTitle').textContent='掃碼加入現場遊戲';delete $('projMessage')._liveMarkup;delete $('projMessage').dataset.mahjongPhase;setHTML('projBalls','');if($('projMessage').dataset.joinScreen!=='1'){$('projMessage').dataset.joinScreen='1';$('projMessage').innerHTML='<div class="game-join-screen"><div class="game-join-visual"><img src="/game-qr.png" alt="掃描加入婚禮現場遊戲" width="600" height="600"><h2>一起玩遊戲！</h2><p>已經在婚禮網頁？點「進入現場遊戲」就好。</p><p>第一次加入？掃碼報到後直接進遊戲。</p></div><div id="gameLobbyProjection"></div></div>';}return}if(projection==='quiz'){window.WeddingEvent?.render();return}delete $('projMessage')._liveMarkup;if(projection==='mahjong'){$('projTitle').textContent='摸麻將挑戰';$('projWall').style.display='none';setHTML('projBalls','');renderMahjongProjection();return}delete $('projMessage').dataset.mahjongPhase;$('projWall').style.display=projection==='wall'?'block':'none';$('projTitle').textContent=({wall:'海上的祝福煙火',lotto:'幸福大樂透'+(data.lottery.prizeName?'｜'+data.lottery.prizeName:''),kahoot:'Kahoot! 參賽入口'})[projection];if(projection==='lotto')renderDraw('projBalls');else{window.WeddingLottery?.unmount($('projBalls'));setHTML('projBalls','')}if(projection==='lotto')$('projMessage').textContent=drawCount()===6?'恭喜 '+(data.lottery.winners||[]).join('、')+'！':lotteryLabel();else if(projection==='kahoot'){const config=kahootSettings();$('projMessage').innerHTML='<div class="kahoot-projection"><span class="kahoot-mark">K!</span><h2>一起加入 Kahoot! 婚禮挑戰</h2><p>從婚禮網站點「前往 Kahoot!」</p><p class="kahoot-pin">'+(config.pin?'Game PIN：'+config.pin:'請依主持人指示輸入 PIN')+'</p><a class="primary kahoot-link" target="_blank" rel="noopener noreferrer" href="'+escapeHTML(config.url)+'">前往 Kahoot! ↗</a><p class="small">題目與排行榜請看接下來的 Kahoot! 主持畫面</p></div>'}else $('projMessage').textContent='讓祝福在海上綻放 ♡'}
+function renderProjection(){
+  if(projection){window.WeddingLottery?.unmount($('drawBalls'));window.WeddingLottery?.unmount($('hostDrawBalls'))}
+  if(!projection){updateFireworkWalls();return}
+  $('projector').dataset.mode=projection;
+  $('projWall').style.display=projection==='wall'?'block':'none';
+  updateFireworkWalls();
+  if(projection!=='lotto')window.WeddingLottery?.unmount($('projBalls'));
+  if(projection!=='join')delete $('projMessage').dataset.joinScreen;
+  if(projection==='join'){
+    $('projTitle').textContent='掃碼加入婚禮活動';
+    setHTML('projBalls','');
+    if($('projMessage').dataset.joinScreen!=='1'){
+      $('projMessage').dataset.joinScreen='1';
+      $('projMessage').innerHTML='<div class="game-join-screen"><div class="game-join-visual"><img src="/game-qr.png?v=20261022-fixes23" alt="掃描加入婚禮活動" width="600" height="600"><h2>一起參與婚禮活動！</h2><p>報到後可參加大樂透；小貓與麻將請看現場投影。</p></div></div>';
+    }
+    return;
+  }
+  delete $('projMessage')._liveMarkup;
+  if(projection==='mahjong'){
+    $('projTitle').textContent='摸麻將挑戰';$('projWall').style.display='none';setHTML('projBalls','');renderMahjongProjection();return;
+  }
+  delete $('projMessage').dataset.mahjongPhase;
+  $('projTitle').textContent=projection==='lotto'?'幸福大樂透'+(data.lottery.prizeName?'｜'+data.lottery.prizeName:''):'海上的祝福煙火';
+  if(projection==='lotto'){
+    renderDraw('projBalls');$('projMessage').textContent=drawCount()===6?'恭喜 '+(data.lottery.winners||[]).join('、')+'！':lotteryLabel();
+  }else{
+    window.WeddingLottery?.unmount($('projBalls'));setHTML('projBalls','');$('projMessage').textContent='讓祝福在海上綻放 ♡';
+  }
+}
 let catProjectionFrame=null,catFrameActive=false;
 function sharedProjectionUrl(){return new URL('/wedding_1212?display=1',location.href).href}
 function openSharedProjection(){window.open(sharedProjectionUrl(),'wedding-shared-projection')}
@@ -292,7 +296,7 @@ function setProjectionConnection(message){
   status.textContent=message;
 }
 function renderSharedProjection(){
-  const mode=['mahjong','cat','lotto','wall','kahoot','quiz','join'].includes(data.projection?.mode)?data.projection.mode:'waiting';if(mode!=='quiz')delete $('projMessage')._liveMarkup;if(mode!=='join')delete $('projMessage').dataset.joinScreen;
+  const mode=['mahjong','cat','lotto','wall','join'].includes(data.projection?.mode)?data.projection.mode:'waiting';delete $('projMessage')._liveMarkup;if(mode!=='join')delete $('projMessage').dataset.joinScreen;
   document.body.classList.add('projecting');$('projector').classList.add('show');
   if(mode==='cat'&&!catProjectionFrame){
     catProjectionFrame=document.createElement('iframe');catProjectionFrame.id='catProjectionFrame';catProjectionFrame.title='小貓迷因現場投影';
@@ -337,7 +341,7 @@ function renderLotteryControls(){
   const message=status==='open'?'現在開放賓客選號。確認大家投完後，按「② 截止選號」。':status==='closed'?(count?'選號已截止，共 '+count+' 張有效彩券。按「③ 開始開獎」。':'選號已截止，目前沒有彩券。請重新開放選號。'):busy?'開獎進行中，請等這個獎的動畫結束。':data.lottery.remainingCount===0?'本輪賓客都已中獎，得獎紀錄與原彩券已保留。':'本獎已開出。輸入下一個獎項名稱，再按「④ 開下一個獎」；保留原彩券，已中獎者不重複抽中。';
   $('hostLottoStats').innerHTML='<strong>'+lotteryLabel()+'｜'+count+' 張彩券</strong><span>'+message+'</span>';renderLotteryHistory();
 }
-function render(){if(displayMode){renderSharedProjection();return}const me=data.me;document.body.classList.toggle('needs-checkin',!completeGuest()&&!data.admin);$('checkStatus').textContent=completeGuest()?'✔ '+me.name+'，你已完成報到！':me?'已記下你的姓名，請再選好頭像完成報到。':'請先輸入姓名並選擇頭像。';renderProfileForm(me);$('navProfile').classList.toggle('visible',completeGuest());setHTML('navProfile',completeGuest()?avatarHTML(me.avatarKind,me.avatarValue)+escapeHTML(me.name):'');renderAvatarSelection();$('lottoStatus').textContent=lotteryLabel();$('lottoSelection').classList.toggle('hidden',!!data.myTicket||data.lottery.status!=='open');setHTML('myTicket',data.myTicket?'兌獎本名：<strong>'+escapeHTML(data.myTicket.name)+'</strong><br>您的幸運號碼：<strong>'+data.myTicket.numbers.map(n=>String(n).padStart(2,'0')).join(' · ')+'</strong>'+(data.myTicket.blessing?'<br>您的祝福：'+escapeHTML(data.myTicket.blessing):''):(!me?'報到後才能參與投注。':''));renderNumbers();renderTicketControls();renderLotteryHistory();renderDraw('drawBalls');renderHostDraw();$('drawStatus').textContent=lotteryLabel();setHTML('winners',drawCount()===6&&data.lottery.winners?.length?'<h3>🎉 六碼全中：'+data.lottery.winners.map(escapeHTML).join('、')+'</h3>':'');setHTML('photoGrid',data.photos.length?photoCards(data.admin):'<p class="muted">還沒有照片，成為第一位分享的人！</p>');setHTML('blessingList',data.blessings.slice().reverse().map(b=>'<div class="qaItem"><span class="blessing-author">'+avatarHTML(b.avatarKind,b.avatarValue)+'<strong>'+escapeHTML(b.name)+'</strong></span>：'+escapeHTML(b.text)+'</div>').join('')||'<p class="muted">還沒有留言，快送上第一份祝福。</p>');renderKahoot();$('adminLogin').classList.toggle('hidden',data.admin);$('adminDashboard').classList.toggle('hidden',!data.admin);if(data.admin){setHTML('stats','<p>🎟 已報到：<b>'+data.guests.length+'</b> 位　｜　📸 照片：<b>'+(data.album?.total??data.photos.length)+'</b> 張　｜　💗 祝福：<b>'+data.blessings.length+'</b> 則　｜　🎱 彩券：<b>'+data.tickets.length+'</b> 張</p>');setHTML('attendees','<h3>報到名單</h3>'+data.guests.map(g=>'<span class="pill" style="margin:3px">'+avatarHTML(g.avatarKind,g.avatarValue)+escapeHTML(g.name)+'</span>').join(''));renderMahjongControls();renderLotteryControls();renderProxyControls();setHTML('ticketList',data.tickets.map(t=>'<div class="qaItem">'+escapeHTML(t.name)+'：'+t.numbers.join('、')+' <button class="outline" onclick="editTicketName(\''+escapeHTML(t.id)+'\')">更正本名</button>'+(t.blessing?'<br>💗 '+escapeHTML(t.blessing):'')+'</div>').join('')||'<p class="muted">尚無投注</p>');setHTML('manageBlessings',data.blessings.map(b=>'<div class="qaItem">'+avatarHTML(b.avatarKind,b.avatarValue)+escapeHTML(b.name)+'：'+escapeHTML(b.text)+' <button class="outline" onclick="removeBlessing(\''+b.id+'\')">刪除</button></div>').join('')||'目前無留言');setHTML('managePhotos',photoCards(true)||'目前無照片')}renderProjection();window.WeddingEvent?.render();window.WeddingAlbum?.render()}
+function render(){if(displayMode){renderSharedProjection();return}const me=data.me;document.body.classList.toggle('needs-checkin',!completeGuest()&&!data.admin);$('checkStatus').textContent=completeGuest()?'✔ '+me.name+'，你已完成報到！':me?'已記下你的姓名，請再選好頭像完成報到。':'請先輸入姓名並選擇頭像。';renderProfileForm(me);$('navProfile').classList.toggle('visible',completeGuest());setHTML('navProfile',completeGuest()?avatarHTML(me.avatarKind,me.avatarValue)+escapeHTML(me.name):'');renderAvatarSelection();$('lottoStatus').textContent=lotteryLabel();$('lottoSelection').classList.toggle('hidden',!!data.myTicket||data.lottery.status!=='open');setHTML('myTicket',data.myTicket?'兌獎本名：<strong>'+escapeHTML(data.myTicket.name)+'</strong><br>您的幸運號碼：<strong>'+data.myTicket.numbers.map(n=>String(n).padStart(2,'0')).join(' · ')+'</strong>'+(data.myTicket.blessing?'<br>您的祝福：'+escapeHTML(data.myTicket.blessing):''):(!me?'報到後才能參與投注。':''));renderNumbers();renderTicketControls();renderLotteryHistory();renderDraw('drawBalls');renderHostDraw();$('drawStatus').textContent=lotteryLabel();setHTML('winners',drawCount()===6&&data.lottery.winners?.length?'<h3>🎉 六碼全中：'+data.lottery.winners.map(escapeHTML).join('、')+'</h3>':'');setHTML('photoGrid',data.photos.length?photoCards(data.admin):'<p class="muted">還沒有照片，成為第一位分享的人！</p>');setHTML('blessingList',data.blessings.slice().reverse().map(b=>'<div class="qaItem"><span class="blessing-author">'+avatarHTML(b.avatarKind,b.avatarValue)+'<strong>'+escapeHTML(b.name)+'</strong></span>：'+escapeHTML(b.text)+'</div>').join('')||'<p class="muted">還沒有留言，快送上第一份祝福。</p>');$('adminLogin').classList.toggle('hidden',data.admin);$('adminDashboard').classList.toggle('hidden',!data.admin);if(data.admin){setHTML('stats','<p>🎟 已報到：<b>'+data.guests.length+'</b> 位　｜　📸 照片：<b>'+(data.album?.total??data.photos.length)+'</b> 張　｜　💗 祝福：<b>'+data.blessings.length+'</b> 則　｜　🎱 彩券：<b>'+data.tickets.length+'</b> 張</p>');setHTML('attendees','<h3>報到名單</h3>'+data.guests.map(g=>'<span class="pill" style="margin:3px">'+avatarHTML(g.avatarKind,g.avatarValue)+escapeHTML(g.name)+'</span>').join(''));renderMahjongControls();renderLotteryControls();renderProxyControls();setHTML('ticketList',data.tickets.map(t=>'<div class="qaItem">'+escapeHTML(t.name)+'：'+t.numbers.join('、')+' <button class="outline" onclick="editTicketName(\''+escapeHTML(t.id)+'\')">更正本名</button>'+(t.blessing?'<br>💗 '+escapeHTML(t.blessing):'')+'</div>').join('')||'<p class="muted">尚無投注</p>');setHTML('manageBlessings',data.blessings.map(b=>'<div class="qaItem">'+avatarHTML(b.avatarKind,b.avatarValue)+escapeHTML(b.name)+'：'+escapeHTML(b.text)+' <button class="outline" onclick="removeBlessing(\''+b.id+'\')">刪除</button></div>').join('')||'目前無留言');setHTML('managePhotos',photoCards(true)||'目前無照片')}renderProjection();window.WeddingEvent?.render();window.WeddingAlbum?.render()}
 let lastDrawCount=-1,lastDrawStartedAt=0;
 setInterval(()=>{if(data.lottery.startedAt!==lastDrawStartedAt){lastDrawStartedAt=data.lottery.startedAt;lastDrawCount=-1}if(data.lottery.status==='drawn'){const count=drawCount();renderDraw('drawBalls');renderHostDraw();$('drawStatus').textContent=lotteryLabel();$('lottoStatus').textContent=lotteryLabel();if(count===6&&lastDrawCount!==6){lastDrawCount=count;render()}else lastDrawCount=count}else lastDrawCount=-1;if(projection==='lotto')renderProjection();if(data.admin&&data.lottery.status==='drawn')renderLotteryControls()},250);
 function pollDelay(){if(document.hidden)return displayMode?10000:120000;return displayMode||projection||hostMode?1000:$('games').classList.contains('active')?3000:$('wall').classList.contains('active')?8000:60000}
@@ -349,8 +353,7 @@ async function poll(){
 function wakePoll(){if(!pollStarted)return;clearTimeout(pollTimer);if(pollRunning){pollWake=true;return}void poll()}
 function startPage(){
   window.WeddingAlbum?.init({album:()=>data.album||{},requireGuest,authHeaders,notice:toast,fitJpeg,refresh:()=>refresh(true),increaseLimit:()=>{albumTake=Math.min(3000,albumTake+60)}});
-  window.WeddingEvent?.init({isGuest:completeGuest,guestId:()=>data.me?.id,isHost:()=>data.admin||hostMode,display:displayMode,projectionMode:()=>projection||data.projection?.mode,navigate:go,lottery:()=>setGame('lotto'),authHeaders,notice:toast,hostAct:act,questions:()=>data.questions||[]});
-  window.WeddingBuzzer?.init({isAdmin:()=>data.admin,authHeaders,requireGuest});
+  window.WeddingEvent?.init({isGuest:completeGuest,isHost:()=>data.admin||hostMode,display:displayMode,navigate:route=>go(route,{activity:true}),lottery:()=>setGame('lotto'),authHeaders,notice:toast});
   if(displayMode){document.body.classList.add('display-mode');renderSharedProjection()}
   else if(new URLSearchParams(location.search).get('host')==='1')go('admin');
   window.addEventListener('focus',wakePoll);
