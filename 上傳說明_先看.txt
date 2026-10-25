@@ -1,0 +1,22 @@
+婚禮網站更新包：只保留大樂透、小貓迷因、麻將問答
+
+完整原始碼位置：C:\Users\吳宇童\Documents\ChatGPT\婚禮\wedding-codex-investigation
+本壓縮檔需先解壓縮。它不是可直接丟進 Cloudflare 的單一網頁檔。
+
+若使用原 GitHub 專案更新：
+1. 將壓縮檔解開後的檔案與資料夾，放到原儲存庫根目錄，覆蓋同名檔。
+2. 從原儲存庫刪除下列舊檔；GitHub「Upload files」不會替你刪除舊檔：
+   app/api/buzzer/route.ts
+   public/buzzer.css
+   public/buzzer.js
+   public/kahoot.css
+   public/rehearsal.css
+   public/rehearsal.js
+   scripts/load-test-local.mjs
+   tests/buzzer.test.mjs
+3. 再依原本的 Cloudflare Worker 部署流程發布。若 GitHub 沒有連結自動部署，單純上傳 GitHub 不會更新正式網站。
+
+本次沒有新增資料表。不需執行 D1 建立、遷移、清空或重設，也不要變更 R2、主持人密碼與原分享網址。
+壓縮檔不含 node_modules、dist、.next、.wrangler、正式資料或登入憑證。
+
+本機檢查：138 項測試通過；TypeScript 與建置通過。正式網站尚未部署此版本。

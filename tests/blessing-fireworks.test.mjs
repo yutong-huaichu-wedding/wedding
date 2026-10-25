@@ -62,6 +62,13 @@ test('six blooms have equal column and row spacing; shells and trails clean up',
 test('normal laptop projection still has six evenly reserved spaces',()=>{
  const s=setup({width:1280,height:500});s.show.update(many);s.show.setActive(true);pause(s);for(let i=0;i<6;i++)s.show.launch();s.advance(4200);assert.equal(s.all('.fireworks-message').length,6);assert.equal(s.find('.fireworks-scene').dataset.rows,'2');
 });
+test('short desktop walls and windowed projections all keep six separate spaces',()=>{
+ for(const [width,height] of [[800,380],[980,350],[1280,360],[1600,410]]){
+  const s=setup({width,height});s.show.update(many);s.show.setActive(true);pause(s);for(let i=0;i<6;i++)s.show.launch();s.advance(4200);
+  const cards=s.all('.fireworks-message');assert.equal(cards.length,6);assert.equal(new Set(cards.map(c=>c.style.left)).size,3);assert.equal(new Set(cards.map(c=>c.style.top)).size,2);assert.equal(s.all('.fireworks-read').length,6);
+  const card=cards[0];card.querySelector('.fireworks-read').onclick();assert.equal(s.find('.fireworks-details').querySelector('blockquote').textContent,card.querySelector('blockquote').textContent);
+ }
+});
 test('fifty rapid clicks all queue, hold each text, then leave a break before the next wave',()=>{
  const s=setup({width:1600,height:720});s.show.update(many);s.show.setActive(true);pause(s);
  for(let i=0;i<50;i++)assert.equal(s.show.launch(),true);

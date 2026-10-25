@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {moveCatQuestion,ready} from '../public/cat-meme-model.js';
 function setup(){
  const els=new Map();const el=id=>{if(!els.has(id))els.set(id,{dataset:{},innerHTML:'',textContent:'',value:'draft',disabled:false,hidden:false,volume:.8,classList:{add(){}},addEventListener(){},pause(){},load(){},removeAttribute(){},contains(){return false},querySelector(){return null}});return els.get(id)};
- const ctx=vm.createContext({console,Blob,URL,URLSearchParams,crypto,location:{search:'?screen=1'},document:{addEventListener(){},getElementById:el,body:el('body')},window:{addEventListener(){}},createCloudProjection:()=>({enabled:false,close(){}}),setInterval(){},setTimeout(){},clearTimeout(){},moveCatQuestion,ready});
+ const ctx=vm.createContext({console,Blob,URL,URLSearchParams,crypto,location:{search:'?screen=1'},document:{addEventListener(){},getElementById:el,body:el('body')},window:{addEventListener(){}},createCloudProjection:()=>({enabled:false,start(){},close(){}}),setInterval(){},setTimeout(){},clearTimeout(){},moveCatQuestion,ready});
  vm.runInContext(readFileSync(new URL('../public/cat-memes.js',import.meta.url),'utf8').replace(/^import[^\n]*\n/gm,'').replaceAll('import.meta.url',JSON.stringify('https://wedding.test/cat-memes.js')),ctx);
  const run=s=>vm.runInContext(s,ctx);
  run(`deck=[{id:'a'},{id:'b'},{id:'c'}];index=1;revealed=true;dirty=true;renderDeck=()=>{};globalThis.published=[];publish=play=>published.push({play,id:current().id,index});globalThis.writes=[];globalThis.resolves=[];globalThis.rejects=[];storeDeck=(order,apply)=>{writes.push({ids:order.map(q=>q.id).join(),apply});return new Promise((resolve,reject)=>{resolves.push(resolve);rejects.push(reject)})}`);

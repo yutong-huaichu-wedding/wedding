@@ -46,24 +46,6 @@ test('mahjong phone controls send only manual state and prevent overlapping requ
 });
 
 
-test('Kahoot replaces old quiz UI and shared configuration updates guest links, pin and projection',()=>{
- const {run,element}=setup();
- run("data.kahoot={url:'https://kahoot.it/?pin=123456',pin:'123456'};renderKahoot();openProjection('kahoot')");
- assert.equal(element('kahootJoin').href,'https://kahoot.it/?pin=123456');assert.match(element('kahootGuestPin').textContent,/123456/);assert.match(element('projMessage').innerHTML,/Kahoot!.*123456/s);
- run("data.admin=true;renderKahoot();kahootDirty=true");element('kahootUrl').value='https://kahoot.it/?pin=888888';run("data.kahoot={url:'https://kahoot.it/?pin=999999',pin:'999999'};renderKahoot()");
- assert.equal(element('kahootUrl').value,'https://kahoot.it/?pin=888888');assert.equal(element('kahootJoin').href,'https://kahoot.it/?pin=999999');
- run("data.kahoot={url:'javascript:alert(1)',pin:'<script>'};renderKahoot()");assert.equal(element('kahootJoin').href,'https://kahoot.it/');assert.doesNotMatch(element('kahootGuestPin').textContent,/<script>/);
- const html=readFileSync(new URL('../public/wedding_1212.html',import.meta.url),'utf8');
- for(const id of ['quizPane','quizTab','ad-questions','quizRanking','questionManager'])assert.ok(!html.includes('id="'+id+'"'));
- assert.ok(html.includes('id="liveQuizContent"'));assert.ok(html.includes('快問快答'));assert.ok(!html.includes('rehearsal.js'));assert.match(html,/id="kahootJoin"[^>]+target="_blank"[^>]+rel="noopener noreferrer"/);
-});
-test('saving Kahoot sends configuration once, disables edits and retains failed drafts',async()=>{
- const {run,element}=setup();run("data.admin=true;renderKahoot();kahootDirty=true");element('kahootUrl').value='https://kahoot.it/?pin=333333';element('kahootPin').value='333333';
- run("globalThis.sent=[];globalThis.finish=null;act=(type,fields)=>{sent.push({type,...fields});return new Promise(resolve=>finish=resolve)};globalThis.saving=saveKahoot()");
- assert.equal(element('kahootUrl').disabled,true);await run('saveKahoot()');assert.equal(run('sent.length'),1);assert.equal(run('sent[0].type'),'kahootUpdate');
- run('finish(null)');await run('saving');assert.equal(element('kahootUrl').disabled,false);assert.equal(element('kahootPin').value,'333333');assert.equal(run('kahootDirty'),true);
-});
-
 test('lottery sends one ticket with blessing, keeps failed drafts, and clears only on success',async()=>{
  const {run,element}=setup();
  run("data.me={id:'a',name:'賓客',avatarKind:'preset',avatarValue:'cat'};picks=[1,2,3,4,5,6];globalThis.sent=[];globalThis.finish=null;act=(type,fields)=>{sent.push({type,...fields});return new Promise(resolve=>finish=resolve)}");

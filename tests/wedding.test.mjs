@@ -13,7 +13,6 @@ function request(token=''){return new Request('https://wedding.test/api/state',{
 async function act(type,fields={},token='admin'){const response=await api.action(new Request('https://wedding.test/api/action',{method:'POST',headers:{...Object.fromEntries(request(token).headers),'content-type':'application/json'},body:JSON.stringify({type,...fields})}));return {status:response.status,body:await response.json()}}
 async function ok(type,fields={},token='admin'){if(type==='ticket'||type==='proxyTicket')fields={realName:'賓客'+(fields.guestId||token),...fields};const r=await act(type,fields,token);assert.equal(r.status,200,JSON.stringify(r.body));return r.body}
 async function state(token='a'){return (await api.state(request(token))).json()}
-async function answer(token='a',choice=0,extra={}){const s=await state(token);return act('answer',{choice,questionId:s.quiz.question.id,round:s.quiz.round,...extra},token)}
 beforeEach(async()=>{
  sqlite?.close();sqlite=new DatabaseSync(':memory:');deleted=[];
  for(const name of ['0000_cold_namorita.sql','0001_yielding_magus.sql','0002_media_in_d1.sql'])sqlite.exec(readFileSync(new URL('../drizzle/'+name,import.meta.url),'utf8'));
@@ -21,39 +20,6 @@ beforeEach(async()=>{
  await api.run('INSERT INTO admin_sessions VALUES (?,?)',await api.hash('test-admin'),Date.now()+60000);
  for(const [i,id] of ['a','b','c'].entries())await api.run('INSERT INTO guests VALUES (?,?,?,?,?,?)',id,'賓客'+id,await api.hash(id),i,'preset','cat');
  for(let i=0;i<3;i++)await api.run('INSERT INTO questions VALUES (?,?,?,?,?)','q'+i,'題目'+i,JSON.stringify(['甲','乙','丙','丁']),0,i);
-});
-test('check-in alone never enrolls; join persists; roster and correct answer stay private',async()=>{
- assert.equal((await state()).quiz.participantCount,0);await ok('quizJoin',{},'a');await ok('quizJoin',{},'a');assert.equal((await state()).quiz.participantCount,1);await ok('quizNext');
- const s=await state();assert.equal(s.quiz.eligible,true);assert.equal(s.quiz.totalParticipants,1);assert.equal(s.quiz.question.correct,undefined);assert.equal(s.quiz.participants,undefined);assert.equal((await answer('b')).status,400);assert.equal((await state()).quiz.joined,true);
-});
-test('last answer auto closes and reveals to everyone; duplicate rejected',async()=>{
- await ok('quizJoin',{},'a');await ok('quizJoin',{},'b');await ok('quizNext');assert.equal((await answer()).status,200);
- let s=await state();assert.equal(s.quiz.open,true);assert.equal(s.quiz.answeredCount,1);assert.equal((await answer()).status,400);assert.equal((await answer('b',1)).status,200);
- s=await state('c');assert.equal(s.quiz.open,false);assert.equal(s.quiz.question.correct,0);assert.equal(s.quiz.answeredCount,2);assert.equal((await state()).quiz.myScore,10);
-});
-test('late join waits for next question; empty roster does not auto close',async()=>{
- await ok('quizNext');await ok('quizJoin',{},'a');let s=await state();assert.equal(s.quiz.open,true);assert.equal(s.quiz.totalParticipants,0);assert.equal(s.quiz.eligible,false);assert.equal((await answer()).status,400);
- await ok('quizClose');await ok('quizNext');assert.equal((await state()).quiz.totalParticipants,1);assert.equal((await state()).quiz.eligible,true);
-});
-test('unanswered exit reduces denominator and auto closes when everyone else answered',async()=>{
- await ok('quizJoin',{},'a');await ok('quizJoin',{},'b');await ok('quizNext');await answer();await ok('quizLeave',{},'b');const s=await state();assert.equal(s.quiz.totalParticipants,1);assert.equal(s.quiz.answeredCount,1);assert.equal(s.quiz.open,false);assert.equal((await state('b')).quiz.joined,false);
-});
-test('answered exit retains answer, score and denominator; leaves next roster',async()=>{
- await ok('quizJoin',{},'a');await ok('quizJoin',{},'b');await ok('quizNext');await answer();await ok('quizLeave',{},'a');let s=await state();assert.equal(s.quiz.totalParticipants,2);assert.equal(s.quiz.answeredCount,1);assert.equal(s.quiz.myAnswer,0);assert.equal(s.quiz.myScore,10);assert.equal(s.quiz.joined,false);
- await answer('b');await ok('quizNext');s=await state();assert.equal(s.quiz.totalParticipants,1);assert.equal(s.quiz.eligible,false);
-});
-test('unanswered leave and rejoin waits for next question',async()=>{
- await ok('quizJoin',{},'a');await ok('quizJoin',{},'b');await ok('quizNext');await ok('quizLeave',{},'a');await ok('quizJoin',{},'a');assert.equal((await state()).quiz.eligible,false);assert.equal((await answer()).status,400);assert.equal((await state()).quiz.totalParticipants,1);
-});
-test('everyone leaving unanswered leaves zero roster open for manual close',async()=>{
- await ok('quizJoin',{},'a');await ok('quizNext');await ok('quizLeave',{},'a');assert.equal((await state()).quiz.open,true);assert.equal((await state()).quiz.totalParticipants,0);await ok('quizClose');assert.equal((await state()).quiz.open,false);
-});
-test('manual close works; next while open and stale answers are rejected',async()=>{
- await ok('quizJoin',{},'a');await ok('quizNext');const old=await state();assert.equal((await act('quizNext')).status,400);await ok('quizClose');assert.equal((await answer()).status,400);await ok('quizNext');assert.equal((await answer('a',0,{questionId:old.quiz.question.id,round:old.quiz.round})).status,400);assert.equal((await state()).quiz.answeredCount,0);
-});
-test('reset creates new round token, retains enrollment and unrelated wedding data',async()=>{
- await ok('blessing',{text:'恭喜'},'a');await ok('ticket',{numbers:[1,2,3,4,5,6]},'a');await ok('quizJoin',{},'a');await ok('quizNext');const old=await state();await answer();await ok('quizReset');await ok('quizNext');assert.notEqual((await state()).quiz.round,old.quiz.round);assert.equal((await answer('a',0,{round:old.quiz.round})).status,400);
- const s=await state();assert.equal(s.blessings.length,1);assert.ok(s.myTicket);assert.equal(s.quiz.myScore,0);assert.equal(s.quiz.totalParticipants,1);
 });
 test('proxy ticket validates six distinct numbers, one ticket, open state and host access',async()=>{
  assert.equal((await act('proxyTicket',{guestId:'b',numbers:[1,2,3,4,5,6]},'a')).status,403);for(const numbers of [[1,1,2,3,4,5],[0,1,2,3,4,5],[1,2,3,4,5,50],[1,2,3]])assert.equal((await act('proxyTicket',{guestId:'b',numbers})).status,400);
@@ -114,23 +80,9 @@ test('photo owner and host may delete; other guests cannot, including forged nam
  await ok('photoDelete',{id:'p2'});assert.equal((await state()).photos.length,0);assert.deepEqual(deleted,['photo-previews/p1','photos/p1','photo-previews/p2','photos/p2']);
 });
 
-test('anonymous guests cannot join, leave or answer',async()=>{for(const type of ['quizJoin','quizLeave','answer'])assert.equal((await act(type,{},'')).status,401)});
-
-test('100 simultaneous answers close once with correct final count',async()=>{
- for(let i=0;i<100;i++){
-  const id='crowd'+i;await api.run('INSERT INTO guests VALUES (?,?,?,?,?,?)',id,id,await api.hash(id),i,'preset','cat');await ok('quizJoin',{},id);
- }
- await ok('quizNext');const q=(await state('crowd0')).quiz;
- const results=await Promise.all(Array.from({length:100},(_,i)=>act('answer',{choice:i%4,questionId:q.question.id,round:q.round},'crowd'+i)));
- assert.ok(results.every(r=>r.status===200));const s=await state();assert.equal(s.quiz.open,false);assert.equal(s.quiz.answeredCount,100);assert.equal(s.quiz.totalParticipants,100);
-});
-test('simultaneous host next requests advance only once',async()=>{
- const results=await Promise.all([act('quizNext'),act('quizNext')]);assert.equal(results.filter(r=>r.status===200).length,1);assert.equal((await state()).quiz.index,0);
-});
-
 test('mahjong host manually controls shared phase; guests cannot change it and unrelated wedding state survives',async()=>{
  assert.equal((await state('a')).mahjong.phase,'guess');
- await ok('blessing',{text:'幸福快樂'},'a');await ok('ticket',{numbers:[1,2,3,4,5,6]},'a');await ok('quizJoin',{},'a');
+ await ok('blessing',{text:'幸福快樂'},'a');await ok('ticket',{numbers:[1,2,3,4,5,6]},'a');
  const before=await state('a');
  for(const phase of ['correct','wrong','guess']){
    assert.equal((await act('mahjongPhase',{phase},'a')).status,403);
@@ -141,24 +93,14 @@ test('mahjong host manually controls shared phase; guests cannot change it and u
  }
  assert.equal((await act('mahjongPhase',{phase:'random'})).status,400);
  assert.equal((await act('mahjongPhase',{phase:'correct'},'')).status,403);
- const after=await state('a');assert.equal(after.mahjong.phase,'guess');assert.deepEqual(after.myTicket,before.myTicket);assert.deepEqual(after.quiz,before.quiz);assert.deepEqual(after.blessings,before.blessings);assert.deepEqual(after.lottery,before.lottery);
-});
-
-test('Kahoot configuration is host-only and shared with all guests, with strict external URL validation',async()=>{
- assert.deepEqual((await state('a')).kahoot,{url:'https://kahoot.it/',pin:''});
- assert.equal((await act('kahootUpdate',{url:'https://kahoot.it/?pin=123456',pin:'123456'},'a')).status,403);
- await ok('kahootUpdate',{url:'https://kahoot.it/?pin=123456',pin:'123456'});
- for(const who of ['a','b','admin'])assert.deepEqual((await state(who)).kahoot,{url:'https://kahoot.it/?pin=123456',pin:'123456'});
- for(const url of ['javascript:alert(1)','http://kahoot.it/','https://kahoot.it.evil.test/','https://kahoot.it@evil.test/','https://evil.test/kahoot.it','https://user:secret@kahoot.it/','https://kahoot.it:444/'])assert.equal((await act('kahootUpdate',{url,pin:''})).status,400);
- assert.equal((await act('kahootUpdate',{url:'https://kahoot.it/',pin:'<script>'})).status,400);
- assert.equal((await state('a')).kahoot.pin,'123456');assert.equal((await state('a')).mahjong.phase,'guess');
+ const after=await state('a');assert.equal(after.mahjong.phase,'guess');assert.deepEqual(after.myTicket,before.myTicket);assert.deepEqual(after.blessings,before.blessings);assert.deepEqual(after.lottery,before.lottery);
 });
 
 test('shared projector follows phone Mahjong commands and only hosts can choose its mode',async()=>{
  let screen=await (await api.readProjection()).json();assert.equal(screen.projection.mode,'waiting');assert.equal(screen.me,undefined);assert.equal(screen.guests,undefined);
  await ok('mahjongPhase',{phase:'correct'});screen=await (await api.readProjection()).json();assert.equal(screen.projection.mode,'mahjong');assert.equal(screen.mahjong.phase,'correct');
- assert.equal((await act('projectionMode',{mode:'kahoot'},'a')).status,403);
- await ok('projectionMode',{mode:'kahoot'});screen=await (await api.readProjection()).json();assert.equal(screen.projection.mode,'kahoot');assert.equal(screen.mahjong.phase,'correct');
+ assert.equal((await act('projectionMode',{mode:'wall'},'a')).status,403);
+ await ok('projectionMode',{mode:'wall'});screen=await (await api.readProjection()).json();assert.equal(screen.projection.mode,'wall');assert.equal(screen.mahjong.phase,'correct');
  assert.equal((await act('projectionMode',{mode:'cat'})).status,400);assert.equal((await act('projectionMode',{mode:'evil'})).status,400);
 });
 
@@ -236,37 +178,9 @@ test('host listening quiz synchronizes question, answer and original touch game 
  for(const fields of [{index:-1,phase:'question'},{index:5,phase:'answer'},{index:'1',phase:'question'},{index:1.5,phase:'answer'},{index:0,phase:'bad'}])assert.equal((await act('mahjongQuiz',fields)).status,400);
  assert.equal((await act('mahjongQuiz',{index:0,phase:'question'},'')).status,403);
  await ok('mahjongPhase',{phase:'guess'});assert.deepEqual((await state()).mahjong,{phase:'guess'});
- const after=await state();for(const key of ['lottery','blessings','photos','quiz'])assert.deepEqual(after[key],before[key]);
+ const after=await state();for(const key of ['lottery','blessings','photos'])assert.deepEqual(after[key],before[key]);
 });
 
-test('150 concurrent guest buzzes produce exactly one server-decided winner with no private IDs exposed',async()=>{
- const round=(await ok('buzzerPrepare',{round:'',title:'小貓第 1 題'})).buzzer.round;
- assert.equal((await act('buzzerClaim',{round},'a')).status,425);
- const opened=await ok('buzzerOpen',{round});assert.ok(opened.buzzer.opensAt>Date.now());
- assert.equal((await act('buzzerClaim',{round,at:0},'a')).status,425);
- assert.equal((await act('buzzerOpen',{round})).status,409);
- await api.run("UPDATE settings SET value=json_set(value,'$.opensAt',?) WHERE key='buzzer'",Date.now()-100);
- const tokens=Array.from({length:150},(_,i)=>'buzz'+i);
- for(const [i,token] of tokens.entries())await api.run('INSERT INTO guests VALUES (?,?,?,?,?,?)',token,'搶答賓客'+i,await api.hash(token),i,'preset','cat');
- const results=await Promise.all(tokens.map(token=>act('buzzerClaim',{round,name:'偽造得主',winner:{name:'假的'},at:0},token)));
- assert.ok(results.every(r=>r.status===200));assert.equal(results.filter(r=>r.body.won).length,1);
- const winnerIndex=results.findIndex(r=>r.body.won),publicState=await (await api.readBuzzer()).json();assert.equal(publicState.buzzer.status,'closed');assert.equal(publicState.buzzer.winner.name,'搶答賓客'+winnerIndex);assert.doesNotMatch(JSON.stringify(publicState),/guestId|token_hash/);
- const retry=await ok('buzzerClaim',{round},tokens[winnerIndex]);assert.equal(retry.won,true);assert.equal(retry.buzzer.winner.at,publicState.buzzer.winner.at);
- const loser=await ok('buzzerClaim',{round},'a');assert.equal(loser.won,false);assert.deepEqual(loser.buzzer,publicState.buzzer);
- await ok('buzzerClose',{round});const dismissed=await (await api.readBuzzer()).json();assert.equal(dismissed.buzzer.showWinner,false);assert.deepEqual(dismissed.buzzer.winner,publicState.buzzer.winner);
-});
-test('buzzer host commands enforce permissions and round identity; early, closed and stale requests cannot win',async()=>{
- const before=await state('a');
- for(const token of ['a',''])for(const type of ['buzzerPrepare','buzzerOpen','buzzerClose'])assert.equal((await act(type,{round:''},token)).status,403);
- const first=(await ok('buzzerPrepare',{round:'',title:'麻將'})).buzzer;
- assert.equal((await act('buzzerClaim',{round:first.round},'')).status,401);
- assert.equal((await act('buzzerClaim',{round:'stale'},'a')).status,409);
- assert.equal((await act('buzzerPrepare',{round:'stale'})).status,409);
- await ok('buzzerClose',{round:first.round});assert.equal((await act('buzzerClaim',{round:first.round},'a')).status,425);
- const next=(await ok('buzzerPrepare',{round:first.round})).buzzer;assert.notEqual(next.round,first.round);assert.equal(next.winner,null);
- assert.equal((await act('buzzerOpen',{round:first.round})).status,409);assert.equal((await act('buzzerClaim',{round:first.round},'a')).status,409);
- const after=await state('a');for(const key of ['mahjong','lottery','blessings','photos','quiz'])assert.deepEqual(after[key],before[key]);
-});
 test('mahjong answer command returns saved display state for immediate phone rendering',async()=>{
  const result=await ok('mahjongQuiz',{index:3,phase:'answer'});assert.deepEqual(result.mahjong,{kind:'quiz',index:3,phase:'answer'});assert.deepEqual(result.projection,{mode:'mahjong',session:''});
  const touch=await ok('mahjongPhase',{phase:'correct'});assert.deepEqual(touch.mahjong,{phase:'correct'});
@@ -274,50 +188,35 @@ test('mahjong answer command returns saved display state for immediate phone ren
 
 test('host activity routing persists for newly arriving guests and rejects guest changes',async()=>{
  assert.equal((await (await api.readActivity()).json()).activity.mode,'reception');
- for(const mode of ['reception','quiz','cat','mahjong','lotto']){
+ for(const mode of ['reception','cat','mahjong','lotto']){
   assert.equal((await act('eventActivity',{mode},'a')).status,403);
   const changed=await ok('eventActivity',{mode}),read=await (await api.readActivity()).json();assert.equal(read.activity.mode,mode);assert.equal(read.activity.serial,changed.activity.serial);
-  if(mode!=='cat')assert.equal((await (await api.readProjection()).json()).projection.mode,{reception:'waiting',quiz:'quiz',mahjong:'mahjong',lotto:'lotto'}[mode]);
+  if(mode!=='cat')assert.equal((await (await api.readProjection()).json()).projection.mode,{reception:'waiting',mahjong:'mahjong',lotto:'lotto'}[mode]);
  }
+ assert.equal((await act('eventActivity',{mode:'quiz'})).status,400);
  assert.equal((await act('eventActivity',{mode:'invalid'})).status,400);
 });
-test('native four-choice quiz enrolls checked-in guests automatically and protects answer, deadline and round',async()=>{
- assert.equal((await act('liveQuizNext',{},'a')).status,403);
- await ok('liveQuizNext',{seconds:20});let live=await (await api.readActivity()).json();assert.equal(live.activity.mode,'quiz');assert.equal(live.quiz.open,true);assert.equal('correct' in live.quiz.question,false);
- const round=live.quiz.round,questionId=live.quiz.question.id;
- await ok('answer',{round,questionId,choice:0},'a');assert.equal((await act('answer',{round,questionId,choice:1},'a')).status,400);
- // A guest who checks in after the question starts may still answer.
- await api.run('INSERT INTO guests VALUES (?,?,?,?,?,?)','late','後到賓客',await api.hash('late'),999,'preset','cat');await ok('answer',{round,questionId,choice:0},'late');
- assert.equal((await act('answer',{round:'old',questionId,choice:0},'b')).status,400);
- await ok('liveQuizClose',{round});live=await (await api.readActivity()).json();assert.equal(live.quiz.open,false);assert.equal(live.quiz.question.correct,0);assert.ok(live.quiz.leaders[0].score>=990&&live.quiz.leaders[0].score<=1000);
- await ok('liveQuizNext',{seconds:10});const next=await (await api.readActivity()).json();assert.notEqual(next.quiz.round,round);assert.equal((await act('liveQuizClose',{round})).status,400);
- await api.run("UPDATE settings SET value=json_set(value,'$.endsAt',?) WHERE key='quiz'",Date.now()-1);
- const expired=await (await api.readActivity()).json();assert.equal(expired.quiz.open,false);assert.equal('correct' in expired.quiz.question,true);assert.equal((await act('answer',{round:next.quiz.round,questionId:next.quiz.question.id,choice:0},'b')).status,400);
- await ok('liveQuizNext',{seconds:20});assert.equal((await (await api.readActivity()).json()).quiz.index,2);
+test('retired quiz, Kahoot and buzzer actions cannot change stored wedding data',async()=>{
+ const beforeQuestions=await api.all('SELECT id FROM questions');
+ const beforeAnswers=await api.all('SELECT id FROM answers');
+ for(const type of ['answer','liveQuizNext','quizReset','questionDelete','kahootUpdate','buzzerOpen','gameJoin']){
+  assert.equal((await act(type,{id:'q0',mode:'quiz'},'admin')).status,410);
+ }
+ assert.equal((await act('projectionMode',{mode:'quiz'})).status,400);
+ assert.equal((await act('projectionMode',{mode:'kahoot'})).status,400);
+ assert.deepEqual(await api.all('SELECT id FROM questions'),beforeQuestions);
+ assert.deepEqual(await api.all('SELECT id FROM answers'),beforeAnswers);
 });
-test('concurrent native quiz start advances only one question and invalid durations preserve state',async()=>{
- assert.equal((await act('liveQuizNext',{seconds:1})).status,400);const results=await Promise.all([act('liveQuizNext',{seconds:20}),act('liveQuizNext',{seconds:20})]);assert.equal(results.filter(r=>r.status===200).length,1);assert.equal((await (await api.readActivity()).json()).quiz.index,0);
-});
-
-test('speed scoring awards 975, 750 and 500 points at known elapsed times and zero for a wrong answer',async()=>{
- await ok('liveQuizNext',{seconds:20});const quiz=await api.setting('quiz',api.quizDefault),id=quiz.questionId;
- await api.run('INSERT INTO guests VALUES (?,?,?,?,?,?)','wrong','答錯賓客',await api.hash('wrong'),4,'preset','cat');
- for(const [guestId,elapsed,correct] of [['a',1000,1],['b',10000,1],['c',19999,1],['wrong',0,0]])await api.run('INSERT INTO answers VALUES (?,?,?,?,?,?)',guestId,id,guestId,correct?0:1,correct,quiz.startedAt+elapsed);
- await ok('liveQuizClose',{round:quiz.round});let live=await (await api.readActivity()).json();assert.equal(live.quiz.scoring,'speed');assert.deepEqual(live.quiz.leaders.map(g=>g.score),[975,750,500,0]);assert.equal((await state('a')).quiz.myScore,975);
- await ok('liveQuizNext',{seconds:10});assert.equal((await state('a')).quiz.myScore,975);
- await ok('quizReset');assert.equal((await state('a')).quiz.myScore,0);assert.equal((await api.all("SELECT key FROM settings WHERE key LIKE 'quizTiming:%'")).length,0);
- await ok('quizJoin',{},'a');await ok('quizNext');await ok('answer',{choice:0,round:(await state()).quiz.round,questionId:(await state()).quiz.question.id},'a');assert.equal((await state('a')).quiz.myScore,10);
-});
-test('speed scoring uses stored server time and rejects duplicate attempts to improve the score',async()=>{
- await ok('liveQuizNext',{seconds:20});const quiz=await api.setting('quiz',api.quizDefault),before=Date.now();
- await ok('answer',{choice:0,round:quiz.round,questionId:quiz.questionId,score:999999,elapsedMs:-9999,created_at:quiz.startedAt-10000},'a');const row=await api.first('SELECT created_at FROM answers WHERE guest_id=?','a');assert.ok(row.created_at>=before&&row.created_at<=Date.now());
- assert.equal((await act('answer',{choice:0,round:quiz.round,questionId:quiz.questionId},'a')).status,400);assert.equal((await api.first('SELECT created_at FROM answers WHERE guest_id=?','a')).created_at,row.created_at);
- await ok('liveQuizClose',{round:quiz.round});const live=await (await api.readActivity()).json(),expected=Math.round(1000-500*Math.min(1,Math.max(0,(row.created_at-quiz.startedAt)/20000)));assert.equal(live.quiz.leaders[0].score,expected);
-});
-test('game lobby counts only authenticated entrants, deduplicates repeat joins and exposes names without guest IDs',async()=>{
- assert.equal((await (await api.readActivity()).json()).players.count,0);assert.equal((await act('gameJoin',{},'')).status,401);
- await Promise.all(Array.from({length:10},()=>ok('gameJoin',{guestId:'b',name:'偽造姓名'},'a')));let players=(await (await api.readActivity()).json()).players;assert.deepEqual(players,{count:1,names:['賓客a']});
- await ok('gameJoin',{},'b');players=(await (await api.readActivity()).json()).players;assert.equal(players.count,2);assert.deepEqual(new Set(players.names),new Set(['賓客a','賓客b']));assert.doesNotMatch(JSON.stringify(players),/guestId|token_hash/);
- await ok('profileUpdate',{name:'改名賓客'},'a');players=(await (await api.readActivity()).json()).players;assert.ok(players.names.includes('改名賓客'));assert.equal(players.count,2);
- await ok('quizReset');assert.equal((await (await api.readActivity()).json()).players.count,2);
+test('independent activity and state reads overlap without changing their public responses',async()=>{
+ const original=env.DB;let active=0,peak=0;
+ const tracked=async task=>{active++;peak=Math.max(peak,active);try{await new Promise(resolve=>setTimeout(resolve,2));return await task()}finally{active--}};
+ env.DB={...original,prepare(sql){const statement=original.prepare(sql);return {
+  bind(...args){statement.bind(...args);return this},
+  first(){return tracked(()=>statement.first())},
+  all(){return tracked(()=>statement.all())}
+ }}};
+ try{
+  const activity=await (await api.readActivity()).json();assert.equal(activity.activity.mode,'reception');assert.equal(activity.players,undefined);assert.equal(peak,1);
+  peak=0;const snapshot=await state('a');assert.equal(snapshot.me.name,'賓客a');assert.equal(snapshot.quiz,undefined);assert.ok(Array.isArray(snapshot.photos));assert.ok(peak>=7,`state peak ${peak}`);
+ }finally{env.DB=original}
 });
