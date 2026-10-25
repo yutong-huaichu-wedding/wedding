@@ -1,3 +1,5 @@
+2026-10-22 最新：六發煙火／手動換頁／QR 易辨識修正，詳見 docs/SIX_FIREWORKS_NAV_QR_20261022.md。資產版本 20261022-fixes23。
+
 ## 最新：LINE外開與20GB原圖相簿
 
 新入席/遊戲QR使用LINE外開參數、仍內建瀏覽器時提示；原報到不跨瀏覽器轉移。20張/人、30MB原圖、總20GiB，R2原File＋獨立縮圖，多選順序上傳、重試、下載原圖、載入更多；原照片保留，DB原子預留與逾時/失敗清理。157項測試、型別、建置及QR解碼通過。詳 [EXTERNAL_BROWSER_ALBUM_20261022.md](EXTERNAL_BROWSER_ALBUM_20261022.md)。使用 wedding-external-browser-album-20261022.zip 累積包，尚需部署並換新版QR，無遷移。
